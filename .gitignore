@@ -44,3 +44,4 @@ terraform.rc
 .env
 .venv
 ansible/inventory
+k3s-ansible

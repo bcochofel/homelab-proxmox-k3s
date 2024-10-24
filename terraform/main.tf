@@ -127,8 +127,22 @@ resource "proxmox_vm_qemu" "agents" {
       }
     }
   }
+}
 
-  depends_on = [
-    proxmox_vm_qemu.servers
-  ]
+# generate ansible inventory file
+resource "local_file" "ansible_inventory" {
+  content = templatefile("${path.root}/templates/inventory.tftpl", {
+    servers_ips = flatten([
+      for srv_key, srv in resource.proxmox_vm_qemu.servers : [
+        split("=", split("/", srv.ipconfig0)[0])[1]
+      ]
+    ]),
+    agents_ips = flatten([
+      for srv_key, srv in resource.proxmox_vm_qemu.agents : [
+        split("=", split("/", srv.ipconfig0)[0])[1]
+      ]
+    ])
+  })
+  filename        = "${path.root}/../ansible/inventory"
+  file_permission = "0640"
 }
