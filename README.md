@@ -1,5 +1,21 @@
 # Create nodes for K3s cluster
 
+Create a K3s cluster on Proxmox using Terraform and Ansible.
+
+## Terraform
+
+Check the documentation for how to setup Terraform [here](https://github.com/bcochofel/homelab-proxmox-core)
+
+To create the virtual machines for the cluster
+
+```bash
+terraform init
+terraform plan
+terraform apply -parallelism=1
+```
+
+The reason for the "-parallelism=1" is because Proxmox locks the template to clone the VM, and can only create one at a time.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
