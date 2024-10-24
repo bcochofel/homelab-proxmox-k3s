@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.1](https://github.com/bcochofel/homelab-proxmox-k3s/compare/1.0.0...1.0.1) (2024-10-24)
+
+### Bug Fixes
+
+* Create K3s Servers and Agents ([c1b8a4b](https://github.com/bcochofel/homelab-proxmox-k3s/commit/c1b8a4bc966c5d8c8cb7b57108488386a5acdf87))
+
 ## 1.0.0 (2024-10-24)
 
 ### Features
