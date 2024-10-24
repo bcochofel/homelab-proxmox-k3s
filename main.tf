@@ -10,36 +10,35 @@ provider "proxmox" {
 ## K3s Servers ##
 
 resource "random_pet" "server_name" {
-  for_each = var.k3s_server_nodes
+  for_each = local.servers
 }
 
 resource "proxmox_vm_qemu" "servers" {
-  for_each = var.k3s_server_nodes
+  for_each = local.servers
 
-  name        = lookup(each.value, "name", random_pet.server_name[each.key].id)
-  target_node = lookup(each.value, "target_node", var.default_target_node)
-  vmid        = lookup(each.value, "vmid", var.default_vmid)
-  desc        = lookup(each.value, "desc", var.default_desc)
-  onboot      = lookup(each.value, "onboot", var.default_onboot)
-  boot        = lookup(each.value, "boot", var.default_boot)
-
-  agent        = lookup(each.value, "agent", var.default_agent)
-  clone        = lookup(each.value, "clone", var.default_clone)
-  full_clone   = lookup(each.value, "full_clone", var.default_full_clone)
-  memory       = lookup(each.value, "memory", var.default_memory)
-  sockets      = lookup(each.value, "sockets", var.default_sockets)
-  cores        = lookup(each.value, "cores", var.default_cores)
-  scsihw       = lookup(each.value, "scsihw", var.default_scsihw)
-  pool         = lookup(each.value, "pool", var.default_pool)
-  tags         = lookup(each.value, "tags", var.default_tags)
-  os_type      = lookup(each.value, "os_type", var.default_os_type)
-  searchdomain = lookup(each.value, "searchdomain", var.default_searchdomain)
-  nameserver   = lookup(each.value, "nameserver", var.default_nameserver)
-  ipconfig0    = lookup(each.value, "ipconfig0", var.default_ipconfig0)
+  name         = each.value.name != null ? each.value.name : random_pet.server_name[each.key].id
+  target_node  = each.value.target_node
+  vmid         = each.value.vmid
+  desc         = each.value.desc
+  onboot       = each.value.onboot
+  boot         = each.value.boot
+  agent        = each.value.agent
+  clone        = each.value.clone
+  full_clone   = each.value.full_clone
+  memory       = each.value.memory
+  sockets      = each.value.sockets
+  cores        = each.value.cores
+  scsihw       = each.value.scsihw
+  pool         = each.value.pool
+  tags         = each.value.tags
+  os_type      = each.value.os_type
+  searchdomain = each.value.searchdomain
+  nameserver   = each.value.nameserver
+  ipconfig0    = each.value.ipconfig0
 
   network {
-    model  = try(each.value.network.model, var.default_network_model)
-    bridge = try(each.value.network.bridge, var.default_network_bridge)
+    model  = each.value.network.model
+    bridge = each.value.network.bridge
   }
 
   disks {
@@ -60,9 +59,9 @@ resource "proxmox_vm_qemu" "servers" {
       }
       scsi1 {
         disk {
-          size    = try(each.value.disk.size, var.default_disk_size)
-          storage = try(each.value.disk.storage, var.default_disk_storage)
-          format  = try(each.value.disk.format, var.default_disk_format)
+          size    = each.value.disk.size
+          storage = each.value.disk.storage
+          format  = each.value.disk.format
         }
       }
     }
@@ -72,36 +71,35 @@ resource "proxmox_vm_qemu" "servers" {
 ## K3s Agents ##
 
 resource "random_pet" "agent_name" {
-  for_each = var.k3s_agent_nodes
+  for_each = local.agents
 }
 
 resource "proxmox_vm_qemu" "agents" {
-  for_each = var.k3s_agent_nodes
+  for_each = local.agents
 
-  name        = lookup(each.value, "name", random_pet.agent_name[each.key].id)
-  target_node = lookup(each.value, "target_node", var.default_target_node)
-  vmid        = lookup(each.value, "vmid", var.default_vmid)
-  desc        = lookup(each.value, "desc", var.default_desc)
-  onboot      = lookup(each.value, "onboot", var.default_onboot)
-  boot        = lookup(each.value, "boot", var.default_boot)
-
-  agent        = lookup(each.value, "agent", var.default_agent)
-  clone        = lookup(each.value, "clone", var.default_clone)
-  full_clone   = lookup(each.value, "full_clone", var.default_full_clone)
-  memory       = lookup(each.value, "memory", var.default_memory)
-  sockets      = lookup(each.value, "sockets", var.default_sockets)
-  cores        = lookup(each.value, "cores", var.default_cores)
-  scsihw       = lookup(each.value, "scsihw", var.default_scsihw)
-  pool         = lookup(each.value, "pool", var.default_pool)
-  tags         = lookup(each.value, "tags", var.default_tags)
-  os_type      = lookup(each.value, "os_type", var.default_os_type)
-  searchdomain = lookup(each.value, "searchdomain", var.default_searchdomain)
-  nameserver   = lookup(each.value, "nameserver", var.default_nameserver)
-  ipconfig0    = lookup(each.value, "ipconfig0", var.default_ipconfig0)
+  name         = each.value.name != null ? each.value.name : random_pet.agent_name[each.key].id
+  target_node  = each.value.target_node
+  vmid         = each.value.vmid
+  desc         = each.value.desc
+  onboot       = each.value.onboot
+  boot         = each.value.boot
+  agent        = each.value.agent
+  clone        = each.value.clone
+  full_clone   = each.value.full_clone
+  memory       = each.value.memory
+  sockets      = each.value.sockets
+  cores        = each.value.cores
+  scsihw       = each.value.scsihw
+  pool         = each.value.pool
+  tags         = each.value.tags
+  os_type      = each.value.os_type
+  searchdomain = each.value.searchdomain
+  nameserver   = each.value.nameserver
+  ipconfig0    = each.value.ipconfig0
 
   network {
-    model  = try(each.value.network.model, var.default_network_model)
-    bridge = try(each.value.network.bridge, var.default_network_bridge)
+    model  = each.value.network.model
+    bridge = each.value.network.bridge
   }
 
   disks {
@@ -122,11 +120,15 @@ resource "proxmox_vm_qemu" "agents" {
       }
       scsi1 {
         disk {
-          size    = try(each.value.disk.size, var.default_disk_size)
-          storage = try(each.value.disk.storage, var.default_disk_storage)
-          format  = try(each.value.disk.format, var.default_disk_format)
+          size    = each.value.disk.size
+          storage = each.value.disk.storage
+          format  = each.value.disk.format
         }
       }
     }
   }
+
+  depends_on = [
+    proxmox_vm_qemu.servers
+  ]
 }

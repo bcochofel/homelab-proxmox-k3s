@@ -57,13 +57,13 @@ variable "default_agent" {
 
 variable "default_clone" {
   type        = string
-  description = "valueThe base VM from which to clone to create the new VM."
-  default     = "valueubuntu-noble-tmpl"
+  description = "The base VM from which to clone to create the new VM."
+  default     = "ubuntu-noble-tmpl"
 }
 
 variable "default_full_clone" {
   type        = bool
-  description = "valueSet to true to create a full clone, or false to create a linked clone."
+  description = "Set to true to create a full clone, or false to create a linked clone."
   default     = true
 }
 
@@ -75,7 +75,7 @@ variable "default_memory" {
 
 variable "default_sockets" {
   type        = number
-  description = "valueThe number of CPU sockets to allocate to the VM."
+  description = "The number of CPU sockets to allocate to the VM."
   default     = 1
 }
 
@@ -87,7 +87,7 @@ variable "default_cores" {
 
 variable "default_scsihw" {
   type        = string
-  description = "valueThe SCSI controller to emulate."
+  description = "The SCSI controller to emulate."
   default     = "virtio-scsi-pci"
 }
 
