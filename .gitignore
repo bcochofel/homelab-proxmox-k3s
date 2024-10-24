@@ -43,4 +43,3 @@ terraform.rc
 # Environments
 .env
 .venv
-ansible/inventory

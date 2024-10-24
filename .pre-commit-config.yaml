@@ -4,10 +4,14 @@ repos:
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
-      - id: trailing-whitespace
+      - id: requirements-txt-fixer
       - id: detect-private-key
       - id: check-merge-conflict
       - id: no-commit-to-branch
+      - id: sort-simple-yaml
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.96.1
     hooks:
@@ -27,3 +31,16 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c=.yamllint]
+  - repo: https://github.com/ansible-community/ansible-lint.git
+    rev: v24.9.2
+    hooks:
+      - id: ansible-lint
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck

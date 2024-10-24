@@ -2,9 +2,9 @@
 
 Create a K3s cluster on Proxmox using Terraform and Ansible.
 
-## Terraform
+This repository is a follow-up to [this](https://github.com/bcochofel/homelab-proxmox-core), so check that for the initial setup.
 
-Check the documentation for how to setup Terraform [here](https://github.com/bcochofel/homelab-proxmox-core)
+## Terraform
 
 To create the virtual machines for the cluster
 
