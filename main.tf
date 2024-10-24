@@ -7,30 +7,40 @@ provider "proxmox" {
   #pm_tls_insecure = true
 }
 
-resource "random_pet" "vm_name" {
+## K3s Servers ##
+
+resource "random_pet" "server_name" {
+  for_each = var.k3s_server_nodes
 }
 
-resource "proxmox_vm_qemu" "ci" {
-  target_node = var.target_node
-  name        = var.vm_name != "" ? var.vm_name : random_pet.vm_name.id
-  vmid        = var.vm_id
-  desc        = var.vm_desc
+resource "proxmox_vm_qemu" "servers" {
+  for_each = var.k3s_server_nodes
 
-  clone      = var.vm_template
-  full_clone = var.full_clone
+  name        = lookup(each.value, "name", random_pet.server_name[each.key].id)
+  target_node = lookup(each.value, "target_node", var.default_target_node)
+  vmid        = lookup(each.value, "vmid", var.default_vmid)
+  desc        = lookup(each.value, "desc", var.default_desc)
+  onboot      = lookup(each.value, "onboot", var.default_onboot)
+  boot        = lookup(each.value, "boot", var.default_boot)
 
-  onboot = var.onboot
-  boot   = var.boot_order
+  agent        = lookup(each.value, "agent", var.default_agent)
+  clone        = lookup(each.value, "clone", var.default_clone)
+  full_clone   = lookup(each.value, "full_clone", var.default_full_clone)
+  memory       = lookup(each.value, "memory", var.default_memory)
+  sockets      = lookup(each.value, "sockets", var.default_sockets)
+  cores        = lookup(each.value, "cores", var.default_cores)
+  scsihw       = lookup(each.value, "scsihw", var.default_scsihw)
+  pool         = lookup(each.value, "pool", var.default_pool)
+  tags         = lookup(each.value, "tags", var.default_tags)
+  os_type      = lookup(each.value, "os_type", var.default_os_type)
+  searchdomain = lookup(each.value, "searchdomain", var.default_searchdomain)
+  nameserver   = lookup(each.value, "nameserver", var.default_nameserver)
+  ipconfig0    = lookup(each.value, "ipconfig0", var.default_ipconfig0)
 
-  agent = var.agent
-
-  memory  = var.memory
-  sockets = var.sockets
-  cores   = var.cores
-
-  os_type = var.os_type
-
-  scsihw = var.scsihw
+  network {
+    model  = try(each.value.network.model, var.default_network_model)
+    bridge = try(each.value.network.bridge, var.default_network_bridge)
+  }
 
   disks {
     ide {
@@ -43,27 +53,80 @@ resource "proxmox_vm_qemu" "ci" {
     scsi {
       scsi0 {
         disk {
-          size    = 12
+          size    = "12G"
           storage = "local-lvm"
           format  = "raw"
         }
       }
       scsi1 {
         disk {
-          size    = 40
-          storage = "local-lvm"
-          format  = "raw"
+          size    = try(each.value.disk.size, var.default_disk_size)
+          storage = try(each.value.disk.storage, var.default_disk_storage)
+          format  = try(each.value.disk.format, var.default_disk_format)
         }
       }
     }
   }
+}
+
+## K3s Agents ##
+
+resource "random_pet" "agent_name" {
+  for_each = var.k3s_agent_nodes
+}
+
+resource "proxmox_vm_qemu" "agents" {
+  for_each = var.k3s_agent_nodes
+
+  name        = lookup(each.value, "name", random_pet.agent_name[each.key].id)
+  target_node = lookup(each.value, "target_node", var.default_target_node)
+  vmid        = lookup(each.value, "vmid", var.default_vmid)
+  desc        = lookup(each.value, "desc", var.default_desc)
+  onboot      = lookup(each.value, "onboot", var.default_onboot)
+  boot        = lookup(each.value, "boot", var.default_boot)
+
+  agent        = lookup(each.value, "agent", var.default_agent)
+  clone        = lookup(each.value, "clone", var.default_clone)
+  full_clone   = lookup(each.value, "full_clone", var.default_full_clone)
+  memory       = lookup(each.value, "memory", var.default_memory)
+  sockets      = lookup(each.value, "sockets", var.default_sockets)
+  cores        = lookup(each.value, "cores", var.default_cores)
+  scsihw       = lookup(each.value, "scsihw", var.default_scsihw)
+  pool         = lookup(each.value, "pool", var.default_pool)
+  tags         = lookup(each.value, "tags", var.default_tags)
+  os_type      = lookup(each.value, "os_type", var.default_os_type)
+  searchdomain = lookup(each.value, "searchdomain", var.default_searchdomain)
+  nameserver   = lookup(each.value, "nameserver", var.default_nameserver)
+  ipconfig0    = lookup(each.value, "ipconfig0", var.default_ipconfig0)
 
   network {
-    model  = var.network_model
-    bridge = var.network_bridge
+    model  = try(each.value.network.model, var.default_network_model)
+    bridge = try(each.value.network.bridge, var.default_network_bridge)
   }
 
-  ipconfig0 = "ip=${var.ip_cidr},gw=${var.gateway}"
-
-  tags = var.tags
+  disks {
+    ide {
+      ide2 {
+        cloudinit {
+          storage = "local-lvm"
+        }
+      }
+    }
+    scsi {
+      scsi0 {
+        disk {
+          size    = "12G"
+          storage = "local-lvm"
+          format  = "raw"
+        }
+      }
+      scsi1 {
+        disk {
+          size    = try(each.value.disk.size, var.default_disk_size)
+          storage = try(each.value.disk.storage, var.default_disk_storage)
+          format  = try(each.value.disk.format, var.default_disk_format)
+        }
+      }
+    }
+  }
 }
