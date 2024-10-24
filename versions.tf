@@ -11,4 +11,12 @@ terraform {
       version = "3.6.3"
     }
   }
+
+  cloud {
+    organization = "homelab-bcochofel-com"
+
+    workspaces {
+      name = "k3s-cluster"
+    }
+  }
 }

@@ -35,13 +35,13 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | <a name="input_default_agent"></a> [default\_agent](#input\_default\_agent) | Set to 1 to enable the QEMU Guest Agent. | `number` | `1` | no |
 | <a name="input_default_boot"></a> [default\_boot](#input\_default\_boot) | The boot order for the VM. | `string` | `"order=scsi0"` | no |
-| <a name="input_default_clone"></a> [default\_clone](#input\_default\_clone) | valueThe base VM from which to clone to create the new VM. | `string` | `"valueubuntu-noble-tmpl"` | no |
+| <a name="input_default_clone"></a> [default\_clone](#input\_default\_clone) | The base VM from which to clone to create the new VM. | `string` | `"ubuntu-noble-tmpl"` | no |
 | <a name="input_default_cores"></a> [default\_cores](#input\_default\_cores) | The number of CPU cores per CPU socket to allocate to the VM. | `number` | `2` | no |
 | <a name="input_default_desc"></a> [default\_desc](#input\_default\_desc) | The description of the VM. | `string` | `""` | no |
 | <a name="input_default_disk_format"></a> [default\_disk\_format](#input\_default\_disk\_format) | The drive’s backing file’s data format. | `string` | `"raw"` | no |
 | <a name="input_default_disk_size"></a> [default\_disk\_size](#input\_default\_disk\_size) | The size of the created disk, format must match the regex \d+[GMK] | `string` | `"40G"` | no |
 | <a name="input_default_disk_storage"></a> [default\_disk\_storage](#input\_default\_disk\_storage) | The name of the storage pool on which to store the disk. | `string` | `"local-lvm"` | no |
-| <a name="input_default_full_clone"></a> [default\_full\_clone](#input\_default\_full\_clone) | valueSet to true to create a full clone, or false to create a linked clone. | `bool` | `true` | no |
+| <a name="input_default_full_clone"></a> [default\_full\_clone](#input\_default\_full\_clone) | Set to true to create a full clone, or false to create a linked clone. | `bool` | `true` | no |
 | <a name="input_default_ipconfig0"></a> [default\_ipconfig0](#input\_default\_ipconfig0) | The first IP address to assign to the guest. | `string` | `"ip=dhcp"` | no |
 | <a name="input_default_memory"></a> [default\_memory](#input\_default\_memory) | The amount of memory to allocate to the VM in Megabytes. | `number` | `2048` | no |
 | <a name="input_default_nameserver"></a> [default\_nameserver](#input\_default\_nameserver) | Sets default DNS server for guest. | `string` | `"192.168.68.2"` | no |
@@ -50,9 +50,9 @@ No modules.
 | <a name="input_default_onboot"></a> [default\_onboot](#input\_default\_onboot) | Whether to have the VM startup after the PVE node starts. | `bool` | `true` | no |
 | <a name="input_default_os_type"></a> [default\_os\_type](#input\_default\_os\_type) | Which provisioning method to use, based on the OS type. | `string` | `"cloud-init"` | no |
 | <a name="input_default_pool"></a> [default\_pool](#input\_default\_pool) | The resource pool to which the VM will be added. | `string` | `""` | no |
-| <a name="input_default_scsihw"></a> [default\_scsihw](#input\_default\_scsihw) | valueThe SCSI controller to emulate. | `string` | `"virtio-scsi-pci"` | no |
+| <a name="input_default_scsihw"></a> [default\_scsihw](#input\_default\_scsihw) | The SCSI controller to emulate. | `string` | `"virtio-scsi-pci"` | no |
 | <a name="input_default_searchdomain"></a> [default\_searchdomain](#input\_default\_searchdomain) | Sets default DNS search domain suffix. | `string` | `"homelab.bcochofel.com"` | no |
-| <a name="input_default_sockets"></a> [default\_sockets](#input\_default\_sockets) | valueThe number of CPU sockets to allocate to the VM. | `number` | `1` | no |
+| <a name="input_default_sockets"></a> [default\_sockets](#input\_default\_sockets) | The number of CPU sockets to allocate to the VM. | `number` | `1` | no |
 | <a name="input_default_tags"></a> [default\_tags](#input\_default\_tags) | Tags of the VM. | `string` | `"terraform"` | no |
 | <a name="input_default_target_node"></a> [default\_target\_node](#input\_default\_target\_node) | The default name of the Proxmox Node on which to place the VM. | `string` | `"pve1"` | no |
 | <a name="input_default_vmid"></a> [default\_vmid](#input\_default\_vmid) | The ID of the VM in Proxmox. | `number` | `0` | no |
@@ -64,7 +64,10 @@ No modules.
 
 ## Outputs
 
-No outputs.
+| Name | Description |
+|------|-------------|
+| <a name="output_agents"></a> [agents](#output\_agents) | n/a |
+| <a name="output_servers"></a> [servers](#output\_servers) | n/a |
 <!-- END_TF_DOCS -->
 
 ## References
