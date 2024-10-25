@@ -192,13 +192,13 @@ variable "k3s_server_nodes" {
   }))
   default = {
     srv1 = {
-      ipconfig0 = "ip=192.168.68.30/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.10/22,gw=192.168.68.1"
     },
     srv2 = {
-      ipconfig0 = "ip=192.168.68.31/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.11/22,gw=192.168.68.1"
     },
     srv3 = {
-      ipconfig0 = "ip=192.168.68.32/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.12/22,gw=192.168.68.1"
     }
   }
   description = <<-EOT
@@ -274,13 +274,13 @@ variable "k3s_agent_nodes" {
   }))
   default = {
     agent1 = {
-      ipconfig0 = "ip=192.168.68.40/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.20/22,gw=192.168.68.1"
     },
     agent2 = {
-      ipconfig0 = "ip=192.168.68.41/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.21/22,gw=192.168.68.1"
     },
     agent3 = {
-      ipconfig0 = "ip=192.168.68.42/22,gw=192.168.68.1"
+      ipconfig0 = "ip=192.168.71.22/22,gw=192.168.68.1"
     }
   }
   description = <<-EOT
