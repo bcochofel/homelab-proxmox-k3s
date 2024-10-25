@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.1.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/1.0.1...1.1.0) (2024-10-25)
+
+### Features
+
+* New IP range for VMs ([704ad55](https://github.com/bcochofel/homelab-proxmox-k3s/commit/704ad55605fe33346672b48f8d0129550d63cc4f))
+
 ## [1.0.1](https://github.com/bcochofel/homelab-proxmox-k3s/compare/1.0.0...1.0.1) (2024-10-24)
 
 ### Bug Fixes
