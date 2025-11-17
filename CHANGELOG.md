@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/1.1.0...1.2.0) (2025-11-17)
+
+### Features
+
+* **terraform:** Removed Servers ([011d569](https://github.com/bcochofel/homelab-proxmox-k3s/commit/011d56975c81a4ea9a4ceaa8552c8e30113d5a3a))
+
 ## [1.1.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/1.0.1...1.1.0) (2024-10-25)
 
 ### Features
