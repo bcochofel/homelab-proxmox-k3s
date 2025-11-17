@@ -58,7 +58,7 @@ variable "default_agent" {
 variable "default_clone" {
   type        = string
   description = "The base VM from which to clone to create the new VM."
-  default     = "ubuntu-noble-tmpl"
+  default     = "ubuntu-24.04-template"
 }
 
 variable "default_full_clone" {
@@ -191,15 +191,15 @@ variable "k3s_server_nodes" {
     }))
   }))
   default = {
-    srv1 = {
-      ipconfig0 = "ip=192.168.71.10/22,gw=192.168.68.1"
-    },
-    srv2 = {
-      ipconfig0 = "ip=192.168.71.11/22,gw=192.168.68.1"
-    },
-    srv3 = {
-      ipconfig0 = "ip=192.168.71.12/22,gw=192.168.68.1"
-    }
+    #    srv1 = {
+    #      ipconfig0 = "ip=192.168.71.10/22,gw=192.168.68.1"
+    #    },
+    #    srv2 = {
+    #      ipconfig0 = "ip=192.168.71.11/22,gw=192.168.68.1"
+    #    },
+    #    srv3 = {
+    #      ipconfig0 = "ip=192.168.71.12/22,gw=192.168.68.1"
+    #    }
   }
   description = <<-EOT
   A map of K3s Server Nodes to be created.
@@ -273,15 +273,15 @@ variable "k3s_agent_nodes" {
     }))
   }))
   default = {
-    agent1 = {
-      ipconfig0 = "ip=192.168.71.20/22,gw=192.168.68.1"
-    },
-    agent2 = {
-      ipconfig0 = "ip=192.168.71.21/22,gw=192.168.68.1"
-    },
-    agent3 = {
-      ipconfig0 = "ip=192.168.71.22/22,gw=192.168.68.1"
-    }
+    #    agent1 = {
+    #      ipconfig0 = "ip=192.168.71.20/22,gw=192.168.68.1"
+    #    },
+    #    agent2 = {
+    #      ipconfig0 = "ip=192.168.71.21/22,gw=192.168.68.1"
+    #    },
+    #    agent3 = {
+    #      ipconfig0 = "ip=192.168.71.22/22,gw=192.168.68.1"
+    #    }
   }
   description = <<-EOT
   A map of K3s Agent Nodes to be created.
