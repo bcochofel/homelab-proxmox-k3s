@@ -3,8 +3,8 @@ module.exports = {
     "main",
     "master",
     { "name": "release/*", "prerelease": "rc" },
-    { "name": "feature/*", "prerelease": true },
-    { "name": "fix/*", "prerelease": true }
+    { "name": "feature/*", "prerelease": "feature" },
+    { "name": "fix/*", "prerelease": "fix" }
   ],
   "tagFormat": '${version}',
   "plugins": [
