@@ -1,0 +1,24 @@
+# Managed by Ansible (roles/traefik). Merges into K3s' bundled Traefik
+# HelmChart addon — see docs/ARGOCD.md's "Traefik" section for why this is
+# a HelmChartConfig rather than a separate Traefik install.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    additionalArguments:
+      - "--certificatesresolvers.cloudflare.acme.dnschallenge=true"
+      - "--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.cloudflare.acme.email={{ traefik_acme_email }}"
+      - "--certificatesresolvers.cloudflare.acme.storage=/data/acme.json"
+    env:
+      - name: CF_DNS_API_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: {{ traefik_cloudflare_secret_name }}
+            key: CF_DNS_API_TOKEN
+    persistence:
+      enabled: true
+      path: /data

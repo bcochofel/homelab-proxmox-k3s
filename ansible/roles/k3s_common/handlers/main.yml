@@ -1,0 +1,6 @@
+---
+# handlers file for k3s_common
+
+- name: Reload sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: true

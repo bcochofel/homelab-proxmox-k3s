@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Joins a host to the K3s cluster in agent (worker) mode
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

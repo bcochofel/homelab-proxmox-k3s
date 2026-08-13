@@ -1,0 +1,52 @@
+---
+# tasks file for traefik — configures K3s' bundled Traefik (already running
+# as a default addon since k3s_server installed with no `--disable traefik`)
+# with a Cloudflare DNS-01 cert resolver, so it can issue its own real
+# Let's Encrypt certs for in-cluster Ingresses (starting with the otel-demo
+# frontend) the same way core repo's Caddy does for its own sites — but as
+# its own, independently-reachable ACME setup, not proxied through Caddy.
+# See docs/ARGOCD.md.
+
+- name: Verify the Cloudflare API token for Traefik is available
+  ansible.builtin.assert:
+    that:
+      - traefik_cloudflare_api_token | length > 0
+    fail_msg: >-
+      CLOUDFLARE_API_TOKEN resolved empty. Add cloudflare_api_token to
+      secrets.yaml, export from ansible/.envrc, then
+      `direnv allow ansible` — see docs/ANSIBLE.md.
+
+- name: Create the kube-system secret holding the Cloudflare API token
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl -n kube-system create secret generic {{ traefik_cloudflare_secret_name }} \
+      --from-literal=CF_DNS_API_TOKEN='{{ traefik_cloudflare_api_token }}' \
+      --dry-run=client -o yaml | kubectl apply -f -
+  register: _traefik_secret
+  changed_when: "'created' in _traefik_secret.stdout or 'configured' in _traefik_secret.stdout"
+  no_log: true
+
+- name: Render the Traefik HelmChartConfig (Cloudflare DNS-01 cert resolver)
+  ansible.builtin.template:
+    src: helmchartconfig.yaml.j2
+    dest: /tmp/traefik-helmchartconfig.yaml
+    mode: "0644"
+
+- name: Apply the Traefik HelmChartConfig
+  ansible.builtin.command: kubectl apply -f /tmp/traefik-helmchartconfig.yaml
+  register: _traefik_config
+  changed_when: "'created' in _traefik_config.stdout or 'configured' in _traefik_config.stdout"
+
+- name: Wait for K3s' helm-controller to reconcile the updated Traefik release
+  ansible.builtin.command: >
+    kubectl -n kube-system rollout status deploy/traefik --timeout=180s
+  register: _traefik_rollout
+  until: _traefik_rollout.rc == 0
+  retries: 6
+  delay: 15
+  changed_when: false
+  # The HelmChartConfig change doesn't take effect instantly — K3s' own
+  # helm-controller has to notice it and re-run `helm upgrade` first, which
+  # can lag a `kubectl apply` by a few seconds to a minute on a homelab
+  # node. Retrying `rollout status` (rather than a single fixed sleep)
+  # covers that gap without hardcoding a specific delay.

@@ -1,46 +1,142 @@
 ---
 repos:
+  # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
-      - id: requirements-txt-fixer
+      - id: trailing-whitespace
       - id: detect-private-key
       - id: check-merge-conflict
       - id: no-commit-to-branch
-      - id: sort-simple-yaml
-      - id: mixed-line-ending
-      - id: trailing-whitespace
-        args: [--markdown-linebreak-ext=md]
-  - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.96.1
+
+  # Secret scanning (gitleaks auto-discovers .gitleaks.toml at the repo
+  # root — its allowlist is what actually lets secrets.yaml/.sops.yaml be
+  # committed despite matching common secret-file patterns; SOPS already
+  # encrypts their contents at rest). language: golang, same "let
+  # pre-commit manage an isolated toolchain" pattern already used for
+  # markdownlint-cli2/commitlint below — not added to the Makefile's
+  # pinned-binary set since nothing else in the pipeline needs gitleaks
+  # directly.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
     hooks:
-      - id: terraform_docs
+      - id: gitleaks
+
+  # Markdown linting (markdownlint-cli2, the Node/JS engine — matches the
+  # davidanson.vscode-markdownlint VS Code extension already in use here.
+  # NOT the Ruby `mdl` gem that Ubuntu's own `markdownlint` apt package
+  # installs; that's an unrelated tool with an incompatible config format).
+  # Config: .markdownlint.yaml at repo root, with a terraform/
+  # override for terraform-docs-generated README content.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        # CHANGELOG.md is semantic-release's own output (@semantic-release/
+        # changelog), not hand-authored — never hand-edit it to satisfy
+        # this hook, exclude it instead. A pre-existing entry here predates
+        # this repo's current .releaserc.js changelogTitle config and
+        # doesn't match the heading shape a fresh run produces; every
+        # future release still regenerates the file correctly.
+        exclude: ^CHANGELOG\.md$
+
+  # Packer formatting and validation (local: no maintained hook repo exists
+  # for Packer HCL, so these shell out directly to the `packer` binary
+  # already required by this project — same tool, no extra supply chain)
+  - repo: local
+    hooks:
+      - id: packer_fmt
+        name: packer fmt -check
+        description: Checks Packer HCL files are canonically formatted
+        language: system
+        entry: bash -c 'set -e; for d in packer/*/; do packer fmt -check -diff "$d"; done'
+        files: ^packer/.*\.(pkr|pkrvars)\.hcl$
+        pass_filenames: false
+
+      - id: packer_validate
+        name: packer validate -syntax-only
+        description: Syntax-checks Packer templates (no variables required)
+        language: system
+        entry: bash -c 'set -e; for d in packer/*/; do packer validate -syntax-only "$d"; done'
+        files: ^packer/.*\.(pkr|pkrvars)\.hcl$
+        pass_filenames: false
+
+      # local, not the upstream ansible/ansible-lint hook: that hook manages
+      # its own isolated pip env via additional_dependencies, which would
+      # duplicate — and drift from — the ansible-core/ansible-lint/collection
+      # versions already pinned in requirements.txt and installed into this
+      # project's own .venv/ by `make ansible-install`. Runs from ansible/ so
+      # ansible.cfg's roles_path and ansible/.ansible-lint both resolve, same
+      # as every documented ansible-playbook invocation in this repo.
+      # pass_filenames is deliberately false: ansible-lint needs the full
+      # role/play context, not individual file fragments (see
+      # https://github.com/ansible/ansible-lint/issues/611).
+      - id: ansible_lint
+        name: ansible-lint (project .venv)
+        description: Lints Ansible roles/playbooks with the project's own .venv
+        language: system
+        entry: bash -c 'cd ansible && ../.venv/bin/ansible-lint'
+        files: ^ansible/
+        pass_filenames: false
+
+  # Terraform formatting and validation
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.104.0
+    hooks:
+      # Terraform formatting
       - id: terraform_fmt
+        args:
+          - --args=-no-color
+          - --args=-diff
+          - --args=-recursive
+        files: ^terraform/
+
+      # Terraform validation
+      - id: terraform_validate
+        args:
+          - --args=-json
+          - --args=-no-color
+        files: ^terraform/
+
+      # Terraform documentation generation
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+        files: ^terraform/
+
+      # TFLint - Terraform linter
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+          - --args=--call-module-type=all
+        files: ^terraform/
+
+      # Trivy - Security scanner
       - id: terraform_trivy
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.trivy.yaml
+          - --args=--cache-dir=/tmp/.cache/trivy
+          - --args=--ignorefile=__GIT_WORKING_DIR__/.trivyignore
+        files: ^terraform/
+
+      # Checkov - Policy as code scanner
+      # --external-checks-dir is passed here as an absolute path (not just
+      # relied on from checkov.yaml's own relative entry) because this hook
+      # cd's into each changed directory before running `checkov -d .` — a
+      # relative external-checks-dir would silently resolve to nothing there.
       - id: terraform_checkov
         args:
-          - --args=--quiet --download-external-modules yes
-  - repo: https://github.com/gruntwork-io/pre-commit
-    rev: v0.1.23
+          - --args=--config-file=__GIT_WORKING_DIR__/checkov.yaml
+          - --args=--external-checks-dir=__GIT_WORKING_DIR__/policies/checkov
+        files: ^terraform/
+
+  # Commit message linting
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.23.0
     hooks:
-      - id: terraform-validate
-      - id: tflint
-  - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v2.4.0
-    hooks:
-      - id: conventional-pre-commit
+      - id: commitlint
         stages: [commit-msg]
-  - repo: https://github.com/adrienverge/yamllint.git
-    rev: v1.35.1
-    hooks:
-      - id: yamllint
-        args: [-c=.yamllint]
-  - repo: https://github.com/ansible-community/ansible-lint.git
-    rev: v24.9.2
-    hooks:
-      - id: ansible-lint
-  - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
-    hooks:
-      - id: shellcheck
+        additional_dependencies: ["@commitlint/config-conventional"]

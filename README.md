@@ -1,105 +1,291 @@
-# Create nodes for K3s cluster
+# homelab-proxmox-k3s
 
-Create a K3s cluster on Proxmox using Terraform and Ansible.
+Three VMs on Proxmox (pve1), built with an IaC pipeline into a K3s cluster,
+running the OpenTelemetry demo managed by ArgoCD.
 
-This repository is a follow-up to [this](https://github.com/bcochofel/homelab-proxmox-core), so check that for the initial setup.
-
-## Ansible
-
-Configure virtual environment for ansible
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r ansible/requirements.txt
+```text
+Packer (template) -> Terraform (clone VMs + generate inventory)
+  -> Ansible (K3s + ArgoCD bootstrap) -> ArgoCD (GitOps)
 ```
 
-## Terraform
+## Homelab architecture
 
-To create the virtual machines for the cluster
+This repo is one of three that make up the homelab:
+
+- **`homelab-proxmox-k3s`** (this repo) — a K3s cluster managed via ArgoCD
+  (GitOps), with Traefik as its in-cluster ingress, running the
+  OpenTelemetry demo. It sends its traces/metrics/logs to the
+  `homelab-proxmox-elastic` stack's APM Server rather than a bundled
+  Jaeger/Prometheus/OpenSearch/Grafana stack of its own — so this cluster
+  is part of the shared observability architecture, not a second, separate
+  one. See [`docs/ARGOCD.md`](docs/ARGOCD.md) for the full rationale.
+- **[`homelab-proxmox-core`](https://github.com/bcochofel/homelab-proxmox-core)**
+  — edge routing and name resolution: the Caddy reverse proxy and the
+  CoreDNS + Pihole DNS pair every VM in the homelab (including this
+  repo's) resolves against.
+- **[`homelab-proxmox-elastic`](https://github.com/bcochofel/homelab-proxmox-elastic)**
+  — the Elastic observability stack (Elasticsearch, Kibana, Fleet Server,
+  APM Server), built with the same Packer -> Terraform -> Ansible pipeline
+  as this repo.
+
+## Quickstart
+
+Get the cluster green on Proxmox, end to end. See
+[Design decisions](#design-decisions) below for topology and rationale, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) if you're setting this up to
+contribute rather than just to run it.
+
+### Prerequisites
+
+- A Proxmox VE node reachable on your LAN (`pve1`), with an Ubuntu Server
+  ISO (26.04) already uploaded to its ISO storage.
+- Two Proxmox API tokens, each scoped to least privilege for what it does:
+  one for Packer (template builds), one for Terraform (clone/configure the
+  VMs) — the same Proxmox users the core/elastic repos already created,
+  just minted with their own token secret for this repo. See
+  [`docs/PACKER.md`](docs/PACKER.md) for the exact `pveum` commands;
+  Terraform's token setup is in [`docs/TERRAFORM.md`](docs/TERRAFORM.md).
+- `age` and `sops` installed, plus a `secrets.yaml` at the repo root
+  holding the Proxmox tokens and cloud-init password the `.envrc` files
+  decrypt per directory — see "Secrets management" below.
+- `direnv` installed and hooked into your shell.
+- `pre-commit` installed if you plan to commit changes (see
+  [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+- `kubectl`, `helm`, `k9s`, `kubectx`/`kubens` — all installed and
+  version-pinned by `make install` (see Commands below). None of these are
+  needed by the pipeline itself (Ansible/ArgoCD do their own thing); they're
+  for inspecting the cluster directly once it's up.
+- A Cloudflare API token scoped to the `bcochofel.com` zone — **Zone → DNS
+  → Edit** + **Zone → Zone → Read** permissions — for Traefik's Let's
+  Encrypt DNS-01 challenge. Create a dedicated token for this repo; don't
+  reuse the one the core repo's Caddy uses, even though it's the same
+  zone.
+
+### Secrets management (SOPS + age)
+
+Every credential this repo needs — Proxmox API tokens, the cloud-init
+password hash, Traefik's Cloudflare token — lives in one file,
+`secrets.yaml` at the repo root,
+encrypted at rest with [SOPS](https://github.com/getsops/sops) using an
+[age](https://github.com/FiloSottile/age) key. Unlike most `secrets.*`
+naming conventions, **this file is meant to be committed** — SOPS encrypts
+the values in place, so the file in git is ciphertext, safe to version
+alongside the code that needs it. What must never be committed is the age
+*private* key or a decrypted copy of the file — both are covered by
+`.gitignore`.
+
+**Setup for this repo:** copy `secrets.yaml` from the core or elastic repo
+and hand-edit it — drop keys this repo doesn't need (e.g.
+`pihole_webpassword`), keep `cloudflare_api_token` **but replace its value**
+with this repo's own dedicated token (see "Prerequisites" above — same key
+name as the core repo's, different value, since each repo's `secrets.yaml`
+is independent), keep/rename the rest of the keys this repo's `.envrc`
+files actually reference (see the table below). Whether you
+reuse that repo's age key (same `.sops.yaml` recipient) or generate a fresh
+one for this repo specifically is your call:
 
 ```bash
-cd terraform/
-terraform init
-terraform plan
-terraform apply -parallelism=1
+# Only if you want a repo-specific age key instead of reusing an existing one:
+age-keygen -o ~/.config/sops/age/keys.txt   # appends if the file already exists
+chmod 600 ~/.config/sops/age/keys.txt
 ```
 
-The reason for the "-parallelism=1" is because Proxmox locks the template to clone the VM, and can only create one at a time.
+Paste whichever public key (`age1...`) you're using into
+[`.sops.yaml`](.sops.yaml) as the recipient before creating/re-encrypting
+`secrets.yaml`.
 
-<!-- BEGIN_TF_DOCS -->
-## Requirements
+**Creating or editing `secrets.yaml`:**
 
-| Name | Version |
-|------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | ~> 1.9.0 |
-| <a name="requirement_proxmox"></a> [proxmox](#requirement\_proxmox) | 3.0.1-rc4 |
-| <a name="requirement_random"></a> [random](#requirement\_random) | 3.6.3 |
+```bash
+sops secrets.yaml
+```
 
-## Providers
+This decrypts into a temp file, opens your `$EDITOR`, and re-encrypts on
+save. Keys this repo's `.envrc` files expect:
 
-| Name | Version |
-|------|---------|
-| <a name="provider_proxmox"></a> [proxmox](#provider\_proxmox) | 3.0.1-rc4 |
-| <a name="provider_random"></a> [random](#provider\_random) | 3.6.3 |
+| Key | Used by |
+| --- | --- |
+| `proxmox_packer_token_id` / `proxmox_packer_token_secret` | Packer |
+| `proxmox_terraform_token_id` / `proxmox_terraform_token_secret` | Terraform |
+| `tf_cloud_token` | Terraform (HCP Terraform) |
+| `cloudinit_password` | Packer + Terraform (cloud-init user password) |
+| `cloudflare_api_token` | Ansible (Traefik's DNS-01 ACME) — a repo-specific token value, not shared with the core repo's |
 
-## Modules
+See [`docs/ANSIBLE.md`](docs/ANSIBLE.md)'s "Secrets" section for more on
+that last one.
 
-No modules.
+**Viewing decrypted content (read-only):**
 
-## Resources
+```bash
+sops -d secrets.yaml
+```
 
-| Name | Type |
-|------|------|
-| [proxmox_vm_qemu.agents](https://registry.terraform.io/providers/Telmate/proxmox/3.0.1-rc4/docs/resources/vm_qemu) | resource |
-| [proxmox_vm_qemu.servers](https://registry.terraform.io/providers/Telmate/proxmox/3.0.1-rc4/docs/resources/vm_qemu) | resource |
-| [random_pet.agent_name](https://registry.terraform.io/providers/hashicorp/random/3.6.3/docs/resources/pet) | resource |
-| [random_pet.server_name](https://registry.terraform.io/providers/hashicorp/random/3.6.3/docs/resources/pet) | resource |
+**How `direnv` uses it:** each directory's `.envrc` runs
+`sops -d --output-type dotenv secrets.yaml` and exports the result as
+environment variables (`PKR_VAR_*` for Packer, `TF_VAR_*` for Terraform).
+Once `secrets.yaml` exists and your age key can decrypt it, `direnv allow`
+(via `make install`) is all that's needed for those variables to appear
+automatically when you `cd` into `packer/`, `terraform/`, etc.
 
-## Inputs
+**After editing `secrets.yaml` itself:** no action needed — direnv re-runs
+`.envrc` automatically the next time you `cd` into a directory, or
+immediately via `direnv reload`.
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_default_agent"></a> [default\_agent](#input\_default\_agent) | Set to 1 to enable the QEMU Guest Agent. | `number` | `1` | no |
-| <a name="input_default_boot"></a> [default\_boot](#input\_default\_boot) | The boot order for the VM. | `string` | `"order=scsi0"` | no |
-| <a name="input_default_clone"></a> [default\_clone](#input\_default\_clone) | The base VM from which to clone to create the new VM. | `string` | `"ubuntu-noble-tmpl"` | no |
-| <a name="input_default_cores"></a> [default\_cores](#input\_default\_cores) | The number of CPU cores per CPU socket to allocate to the VM. | `number` | `2` | no |
-| <a name="input_default_desc"></a> [default\_desc](#input\_default\_desc) | The description of the VM. | `string` | `""` | no |
-| <a name="input_default_disk_format"></a> [default\_disk\_format](#input\_default\_disk\_format) | The drive’s backing file’s data format. | `string` | `"raw"` | no |
-| <a name="input_default_disk_size"></a> [default\_disk\_size](#input\_default\_disk\_size) | The size of the created disk, format must match the regex \d+[GMK] | `string` | `"40G"` | no |
-| <a name="input_default_disk_storage"></a> [default\_disk\_storage](#input\_default\_disk\_storage) | The name of the storage pool on which to store the disk. | `string` | `"local-lvm"` | no |
-| <a name="input_default_full_clone"></a> [default\_full\_clone](#input\_default\_full\_clone) | Set to true to create a full clone, or false to create a linked clone. | `bool` | `true` | no |
-| <a name="input_default_ipconfig0"></a> [default\_ipconfig0](#input\_default\_ipconfig0) | The first IP address to assign to the guest. | `string` | `"ip=dhcp"` | no |
-| <a name="input_default_memory"></a> [default\_memory](#input\_default\_memory) | The amount of memory to allocate to the VM in Megabytes. | `number` | `2048` | no |
-| <a name="input_default_nameserver"></a> [default\_nameserver](#input\_default\_nameserver) | Sets default DNS server for guest. | `string` | `"192.168.68.2"` | no |
-| <a name="input_default_network_bridge"></a> [default\_network\_bridge](#input\_default\_network\_bridge) | Bridge to which the network device should be attached. | `string` | `"vmbr0"` | no |
-| <a name="input_default_network_model"></a> [default\_network\_model](#input\_default\_network\_model) | Network Card Model. | `string` | `"virtio"` | no |
-| <a name="input_default_onboot"></a> [default\_onboot](#input\_default\_onboot) | Whether to have the VM startup after the PVE node starts. | `bool` | `true` | no |
-| <a name="input_default_os_type"></a> [default\_os\_type](#input\_default\_os\_type) | Which provisioning method to use, based on the OS type. | `string` | `"cloud-init"` | no |
-| <a name="input_default_pool"></a> [default\_pool](#input\_default\_pool) | The resource pool to which the VM will be added. | `string` | `""` | no |
-| <a name="input_default_scsihw"></a> [default\_scsihw](#input\_default\_scsihw) | The SCSI controller to emulate. | `string` | `"virtio-scsi-pci"` | no |
-| <a name="input_default_searchdomain"></a> [default\_searchdomain](#input\_default\_searchdomain) | Sets default DNS search domain suffix. | `string` | `"homelab.bcochofel.com"` | no |
-| <a name="input_default_sockets"></a> [default\_sockets](#input\_default\_sockets) | The number of CPU sockets to allocate to the VM. | `number` | `1` | no |
-| <a name="input_default_tags"></a> [default\_tags](#input\_default\_tags) | Tags of the VM. | `string` | `"terraform"` | no |
-| <a name="input_default_target_node"></a> [default\_target\_node](#input\_default\_target\_node) | The default name of the Proxmox Node on which to place the VM. | `string` | `"pve1"` | no |
-| <a name="input_default_vmid"></a> [default\_vmid](#input\_default\_vmid) | The ID of the VM in Proxmox. | `number` | `0` | no |
-| <a name="input_k3s_agent_nodes"></a> [k3s\_agent\_nodes](#input\_k3s\_agent\_nodes) | A map of K3s Agent Nodes to be created.<br>map(object({<br>  name = (Optional) The name of the VM within Proxmox. If not set will be generated.<br>  target\_node = (Optional) The name of the Proxmox Node on which to place the VM. If not set will be the value of the default\_target\_node.<br>  vmid = (Optional) The ID of the VM in Proxmox. If not set will be the value of default\_vmid.<br>  desc = (Optional) The description of the VM. Shows as the 'Notes' field in the Proxmox GUI. If not set will be the value of default\_desc.<br>  onboot = (Optional) Whether to have the VM startup after the PVE node starts. If not set will be the value of default\_onboot.<br>  boot = (Optional) The boot order for the VM. For example: order=scsi0;ide2;net0. If not set will be the value of default\_boot.<br>  agent = (Optional) Set to 1 to enable the QEMU Guest Agent. Note, you must run the qemu-guest-agent daemon in the guest for this to have any effect. If not set will be the value of default\_agent.<br>  clone = (Optional) The base VM from which to clone to create the new VM. If not set will be the value of default\_clone.<br>  full\_clone = (Optional) Set to true to create a full clone, or false to create a linked clone. If not set will be the value of default\_full\_clone.<br>  memory = (Optional) The amount of memory to allocate to the VM in Megabytes. If not set will be the value of default\_memory.<br>  sockets = (Optional) The number of CPU sockets to allocate to the VM. If not set will be the value of default\_sockets.<br>  cores = (Optional) The number of CPU cores per CPU socket to allocate to the VM. If not set will be the value of default\_cores.<br>  scsihw = (Optional) The SCSI controller to emulate. If not set will be the value of default\_scsihw.<br>  pool = (Optional) The resource pool to which the VM will be added. If not set will be the value of default\_pool.<br>  tags = (Optional) Tags of the VM. Comma-separated values (e.g. tag1,tag2,tag3). Tag may only include the following characters: [a-z], [0-9] and \_. This is only meta information. If not set will be the value of default\_tags.<br>  os\_type = (Optional) Which provisioning method to use, based on the OS type. If not set will be the value of default\_os\_type.<br>  searchdomain = (Optional) Sets default DNS search domain suffix. If not set will be the value of default\_searchdomain.<br>  nameserver = (Optional) Sets default DNS server for guest. If not set will be the value of default\_nameserver.<br>  ipconfig0 = (Optional) The first IP address to assign to the guest. If not set will be the value of default\_ipconfig0.<br>  network = optional(object({<br>    model = (Optional) Network Card Model. The virtio model provides the best performance with very low CPU overhead. If not set will be the value of default\_network\_model.<br>    bridge = (Optional) Bridge to which the network device should be attached. If not set will be the value of default\_network\_bridge.<br>  }))<br>  disk = optional(object({<br>    size = (Optional) The size of the additional disk. Accepts K for kibibytes, M for mebibytes, G for gibibytes, T for tibibytes. If not set will be the value of default\_disk\_size.<br>    storage = (Optional) The name of the storage pool on which to store the disk. If not set will be the value of default\_disk\_storage.<br>    format = (Optional) The drive’s backing file’s data format. If not set will be the value of default\_disk\_format.<br>  }))<br>}))<br><br>The disk map is for an additional disk only. | <pre>map(object({<br>    name         = optional(string)<br>    target_node  = optional(string)<br>    vmid         = optional(number)<br>    desc         = optional(string)<br>    onboot       = optional(bool)<br>    boot         = optional(string)<br>    agent        = optional(number)<br>    clone        = optional(string)<br>    full_clone   = optional(bool)<br>    memory       = optional(number)<br>    sockets      = optional(number)<br>    cores        = optional(number)<br>    scsihw       = optional(string)<br>    pool         = optional(string)<br>    tags         = optional(string)<br>    os_type      = optional(string)<br>    searchdomain = optional(string)<br>    nameserver   = optional(string)<br>    ipconfig0    = optional(string)<br>    network = optional(object({<br>      model  = optional(string)<br>      bridge = optional(string)<br>    }))<br>    disk = optional(object({<br>      size    = optional(string)<br>      storage = optional(string)<br>      format  = optional(string)<br>    }))<br>  }))</pre> | <pre>{<br>  "agent1": {<br>    "ipconfig0": "ip=192.168.68.40/22,gw=192.168.68.1"<br>  },<br>  "agent2": {<br>    "ipconfig0": "ip=192.168.68.41/22,gw=192.168.68.1"<br>  },<br>  "agent3": {<br>    "ipconfig0": "ip=192.168.68.42/22,gw=192.168.68.1"<br>  }<br>}</pre> | no |
-| <a name="input_k3s_server_nodes"></a> [k3s\_server\_nodes](#input\_k3s\_server\_nodes) | A map of K3s Server Nodes to be created.<br>map(object({<br>  name = (Optional) The name of the VM within Proxmox. If not set will be generated.<br>  target\_node = (Optional) The name of the Proxmox Node on which to place the VM. If not set will be the value of the default\_target\_node.<br>  vmid = (Optional) The ID of the VM in Proxmox. If not set will be the value of default\_vmid.<br>  desc = (Optional) The description of the VM. Shows as the 'Notes' field in the Proxmox GUI. If not set will be the value of default\_desc.<br>  onboot = (Optional) Whether to have the VM startup after the PVE node starts. If not set will be the value of default\_onboot.<br>  boot = (Optional) The boot order for the VM. For example: order=scsi0;ide2;net0. If not set will be the value of default\_boot.<br>  agent = (Optional) Set to 1 to enable the QEMU Guest Agent. Note, you must run the qemu-guest-agent daemon in the guest for this to have any effect. If not set will be the value of default\_agent.<br>  clone = (Optional) The base VM from which to clone to create the new VM. If not set will be the value of default\_clone.<br>  full\_clone = (Optional) Set to true to create a full clone, or false to create a linked clone. If not set will be the value of default\_full\_clone.<br>  memory = (Optional) The amount of memory to allocate to the VM in Megabytes. If not set will be the value of default\_memory.<br>  sockets = (Optional) The number of CPU sockets to allocate to the VM. If not set will be the value of default\_sockets.<br>  cores = (Optional) The number of CPU cores per CPU socket to allocate to the VM. If not set will be the value of default\_cores.<br>  scsihw = (Optional) The SCSI controller to emulate. If not set will be the value of default\_scsihw.<br>  pool = (Optional) The resource pool to which the VM will be added. If not set will be the value of default\_pool.<br>  tags = (Optional) Tags of the VM. Comma-separated values (e.g. tag1,tag2,tag3). Tag may only include the following characters: [a-z], [0-9] and \_. This is only meta information. If not set will be the value of default\_tags.<br>  os\_type = (Optional) Which provisioning method to use, based on the OS type. If not set will be the value of default\_os\_type.<br>  searchdomain = (Optional) Sets default DNS search domain suffix. If not set will be the value of default\_searchdomain.<br>  nameserver = (Optional) Sets default DNS server for guest. If not set will be the value of default\_nameserver.<br>  ipconfig0 = (Optional) The first IP address to assign to the guest. If not set will be the value of default\_ipconfig0.<br>  network = optional(object({<br>    model = (Optional) Network Card Model. The virtio model provides the best performance with very low CPU overhead. If not set will be the value of default\_network\_model.<br>    bridge = (Optional) Bridge to which the network device should be attached. If not set will be the value of default\_network\_bridge.<br>  }))<br>  disk = optional(object({<br>    size = (Optional) The size of the additional disk. Accepts K for kibibytes, M for mebibytes, G for gibibytes, T for tibibytes. If not set will be the value of default\_disk\_size.<br>    storage = (Optional) The name of the storage pool on which to store the disk. If not set will be the value of default\_disk\_storage.<br>    format = (Optional) The drive’s backing file’s data format. If not set will be the value of default\_disk\_format.<br>  }))<br>}))<br><br>The disk map is for an additional disk only. | <pre>map(object({<br>    name         = optional(string)<br>    target_node  = optional(string)<br>    vmid         = optional(number)<br>    desc         = optional(string)<br>    onboot       = optional(bool)<br>    boot         = optional(string)<br>    agent        = optional(number)<br>    clone        = optional(string)<br>    full_clone   = optional(bool)<br>    memory       = optional(number)<br>    sockets      = optional(number)<br>    cores        = optional(number)<br>    scsihw       = optional(string)<br>    pool         = optional(string)<br>    tags         = optional(string)<br>    os_type      = optional(string)<br>    searchdomain = optional(string)<br>    nameserver   = optional(string)<br>    ipconfig0    = optional(string)<br>    network = optional(object({<br>      model  = optional(string)<br>      bridge = optional(string)<br>    }))<br>    disk = optional(object({<br>      size    = optional(string)<br>      storage = optional(string)<br>      format  = optional(string)<br>    }))<br>  }))</pre> | <pre>{<br>  "srv1": {<br>    "ipconfig0": "ip=192.168.68.30/22,gw=192.168.68.1"<br>  },<br>  "srv2": {<br>    "ipconfig0": "ip=192.168.68.31/22,gw=192.168.68.1"<br>  },<br>  "srv3": {<br>    "ipconfig0": "ip=192.168.68.32/22,gw=192.168.68.1"<br>  }<br>}</pre> | no |
-| <a name="input_pm_api_token_id"></a> [pm\_api\_token\_id](#input\_pm\_api\_token\_id) | This is an API token you have previously created for a specific user. | `string` | n/a | yes |
-| <a name="input_pm_api_token_secret"></a> [pm\_api\_token\_secret](#input\_pm\_api\_token\_secret) | This uuid is only available when the token was initially created. | `string` | n/a | yes |
-| <a name="input_pm_api_url"></a> [pm\_api\_url](#input\_pm\_api\_url) | This is the target Proxmox API endpoint. | `string` | n/a | yes |
+**After editing any `.envrc` file:** direnv treats a changed `.envrc` as
+untrusted and blocks it until re-approved:
 
-## Outputs
+```bash
+make direnv-allow
+```
 
-| Name | Description |
-|------|-------------|
-| <a name="output_agents"></a> [agents](#output\_agents) | n/a |
-| <a name="output_servers"></a> [servers](#output\_servers) | n/a |
-<!-- END_TF_DOCS -->
+### 0. Prepare the local environment
+
+```bash
+make install
+```
+
+Pins the CLI binaries this repo needs (`terraform`, `packer`, `trivy`,
+`tflint`, `terraform-docs`, `sops`) into `~/bin`, approves the `.envrc`
+files (root, `packer/`, `terraform/`, `ansible/`) via direnv, and creates
+the `.venv/` Ansible runs from.
+
+### 1. Build the VM template (Packer)
+
+```bash
+make packer-init
+cd packer/ubuntu-26.04
+cp variables.pkrvars.hcl.example variables.auto.pkrvars.hcl   # fill in, gitignored, auto-loaded
+packer build .
+```
+
+See [`packer/ubuntu-26.04/README.md`](packer/ubuntu-26.04/README.md) for
+what it bakes in and why.
+
+### 2. Clone the VMs and generate the inventory (Terraform)
+
+```bash
+cd terraform
+cp example.tfvars terraform.tfvars   # edit, or set the equivalent HCP workspace variables
+terraform init    # one time
+terraform plan    # review before applying
+terraform apply
+```
+
+Add `-parallelism=1` if you want quieter output: Proxmox locks the
+template while cloning, so cloning all three VMs in parallel just
+serializes anyway — the flag is optional, it only trims the extra
+lock-wait noise, not required for a successful apply. This clones the
+Packer template into `k3s-srv1`/`k3s-agent1`/
+`k3s-agent2`, assigns each a static IP, and writes
+`ansible/inventory/hosts.ini` — see [`docs/TERRAFORM.md`](docs/TERRAFORM.md),
+including the `pveum` commands to create the `terraform@pve` token if you
+haven't already.
+
+### 3. Bootstrap K3s + ArgoCD (Ansible)
+
+```bash
+source .venv/bin/activate   # from repo root
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook playbooks/site.yml
+```
+
+Runs bootstrap -> K3s server -> K3s agents -> Traefik (Cloudflare DNS-01
+cert resolver) -> ArgoCD install + app-of-apps -> health check. See
+[`docs/ANSIBLE.md`](docs/ANSIBLE.md) for the role/playbook breakdown.
+
+**Before this succeeds:** `CLOUDFLARE_API_TOKEN` must be set in
+`secrets.yaml` and exported from `ansible/.envrc` — the `traefik` role's
+preflight check fails loudly and early if it's missing.
+
+Once done, add a DNS record for `otel-demo.homelab.bcochofel.com` pointed
+at `k3s-srv1` (`192.168.68.25`) in the **core repo's**
+`ansible/inventory/group_vars/dns.yml` — manual, cross-repo, see
+[`docs/ARGOCD.md`](docs/ARGOCD.md) — then see [Verify](#verify) below.
+
+### 4. Everything past this point is GitOps
+
+`ansible-playbook playbooks/site.yml` applies exactly one ArgoCD
+`Application` directly (`argocd/root-app.yaml`) — everything else,
+starting with the OpenTelemetry demo (`argocd/apps/otel-demo.yaml`), syncs
+on its own once ArgoCD is up. Adding a new app is a new file under
+`argocd/apps/`, committed and pushed — see
+[`docs/ARGOCD.md`](docs/ARGOCD.md).
+
+## Topology
+
+| VM | vCPU | RAM | Disk | Role | IP |
+| --- | --- | --- | --- | --- | --- |
+| k3s-srv1 | 2 | 4 GB | 40 G | K3s server (control-plane) | 192.168.68.25 |
+| k3s-agent1 | 2 | 4 GB | 40 G | K3s agent (worker) | 192.168.68.26 |
+| k3s-agent2 | 2 | 4 GB | 40 G | K3s agent (worker) | 192.168.68.27 |
+
+Single-server topology, no HA embedded-etcd — sized against `pve1`'s live
+capacity at refactor time (16 vCPU/62.5 GB total, ~13 vCPU/~35 GB already
+allocated to the core/elastic repos' VMs). See `CLAUDE.md` for the full
+math and what growing to a 3-server HA control plane would change.
+
+## Verify
+
+- `kubectl get nodes` — all three should be `Ready`.
+- `kubectl -n argocd get applications` — `root` and `otel-demo` both
+  `Synced`/`Healthy` (the latter can take a few minutes on first sync —
+  see `docs/ANSIBLE.md`'s healthcheck notes).
+- `kubectl -n otel-demo get pods` — everything `Running`, nothing stuck
+  `Pending`.
+- ArgoCD's own WebUI — `kubectl -n argocd port-forward svc/argocd-server
+  8080:443`, then browse `https://localhost:8080` (default admin password
+  in the `argocd-initial-admin-secret` Secret in the `argocd` namespace
+  until it's rotated). No Ingress hostname is set up for it yet — see
+  [`docs/ARGOCD.md`](docs/ARGOCD.md).
+- `https://otel-demo.homelab.bcochofel.com` — the demo's storefront UI,
+  served with a real Let's Encrypt cert issued by Traefik itself (once the
+  DNS record above is in place and the cert resolver has had a moment to
+  issue it). This also confirms Traefik's own ingress and DNS-01 cert
+  resolver are working — Traefik's dashboard itself isn't exposed
+  (`--api.dashboard`/`--api.insecure` aren't set in the `traefik` role's
+  `HelmChartConfig`), so this is the only in-cluster WebUI reachable
+  without a `port-forward`.
+
+## Design decisions
+
+- **Provider:** `bpg/proxmox`, same shared `modules/vm` module as
+  core/elastic (with one local change: `nameserver` is a list here, both
+  CoreDNS and Pihole).
+- **State:** HCP Terraform, workspace `k3s-cluster`.
+- **K3s + ArgoCD install:** official install script/manifest, pinned
+  version, plain `kubectl`/`curl | sh` — no extra Ansible collection.
+- **GitOps:** app-of-apps — Ansible applies one root `Application`,
+  everything else is a file under `argocd/apps/`.
+- **Ingress/TLS:** K3s' bundled Traefik, configured with its own
+  Cloudflare DNS-01 cert resolver (own token, independent of core's
+  Caddy) — terminates TLS itself rather than proxying through Caddy.
+- **Observability:** the OpenTelemetry demo's bundled Jaeger/Prometheus/
+  OpenSearch/Grafana are disabled; its collector exports to the elastic
+  repo's apm-server instead. One shared Elastic Observability stack across
+  all three repos, not a second one per repo.
+- **Inventory:** only `ansible/inventory/hosts.ini` is generated.
+  `ansible/inventory/group_vars/` is hand-authored and never overwritten.
+- **Decoupling:** Terraform and Ansible are run as separate, explicit
+  commands — no `local-exec` chaining, no Makefile wrapper around either
+  write step.
+- **Template:** `ubuntu-26.04-k3s`, minimal (Docker included for parity/
+  debugging, not required by K3s itself).
+
+## Documentation
+
+- [`docs/PACKER.md`](docs/PACKER.md) — VM template build.
+- [`docs/TERRAFORM.md`](docs/TERRAFORM.md) — cloning the VMs + inventory generation.
+- [`docs/ANSIBLE.md`](docs/ANSIBLE.md) — K3s + ArgoCD bootstrap.
+- [`docs/ARGOCD.md`](docs/ARGOCD.md) — the GitOps layer + OpenTelemetry demo.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment setup, branching, commit
+  conventions, and versioning for contributors.
+- [`TODO.md`](TODO.md) — phase-by-phase roadmap and current status.
 
 ## References
 
-- [Terraform Proxmox Provider](https://registry.terraform.io/providers/Telmate/proxmox/latest/docs)
-- [Terraform for_each](https://spacelift.io/blog/terraform-for-each)
-- [Terraform for loop](https://spacelift.io/blog/terraform-for-loop)
-- [Terraform tips and tricks](https://blog.gruntwork.io/terraform-tips-tricks-loops-if-statements-and-gotchas-f739bbae55f9)
+- [Proxmox VE Documentation](https://pve.proxmox.com/pve-docs/)
+- [Proxmox Cloud-Init Support](https://pve.proxmox.com/wiki/Cloud-Init_Support)
+- [K3s Documentation](https://docs.k3s.io/)
+- [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
+- [OpenTelemetry Demo](https://opentelemetry.io/docs/demo/)

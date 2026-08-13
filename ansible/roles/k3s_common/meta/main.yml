@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Host prerequisites shared by k3s_server and k3s_agent (swap, kernel modules, sysctls)
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []
