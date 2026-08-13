@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Installs ArgoCD and bootstraps the app-of-apps root Application
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

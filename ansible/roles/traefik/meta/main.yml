@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Configures K3s' bundled Traefik with a Cloudflare DNS-01 cert resolver
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

@@ -1,0 +1,116 @@
+# ============================================================================
+# OpenTelemetry Demo — routes traces/metrics/logs to the homelab-proxmox-
+# elastic repo's apm-server VM (Fleet-managed Elastic Agent + APM
+# integration, 192.168.68.34:8200) instead of the chart's bundled Jaeger/
+# Prometheus/OpenSearch/Grafana. See ../../docs/ARGOCD.md for the full
+# rationale and how to verify data is landing in Kibana.
+#
+# apm-server endpoint is plain HTTP, no auth: the elastic repo's Fleet APM
+# integration package policy (ansible/roles/fleet_bootstrap/tasks/main.yml)
+# only sets `host`, no `secret_token`/TLS — confirmed by reading that repo,
+# not assumed. If that ever changes (secret_token or TLS added on the
+# apm-server side), this exporter needs a matching Authorization header /
+# certificate — see the TODO.md entry for this app.
+#
+# Exposed via K3s' bundled Traefik (configured by ansible/roles/traefik
+# with its own Cloudflare DNS-01 cert resolver, independent of the core
+# repo's Caddy) at otel-demo.homelab.bcochofel.com. Requires a DNS record
+# for that hostname pointed at a K3s node IP (e.g. k3s-srv1,
+# 192.168.68.25) — a manual step in the core repo's `dns_hosts`
+# (`inventory/group_vars/dns.yml`), not automated here since it's a
+# different repo. See docs/ARGOCD.md.
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-demo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-demo
+    targetRevision: "0.41.0"
+    helm:
+      valuesObject:
+        # Bundled backends disabled — the elastic repo's Elasticsearch +
+        # Kibana + APM integration is the observability backend instead.
+        # Also meaningfully shrinks this app's footprint on a 2-agent/
+        # 4GB-each cluster (opensearch in particular is memory-hungry).
+        jaeger:
+          enabled: false
+        prometheus:
+          enabled: false
+        opensearch:
+          enabled: false
+        grafana:
+          enabled: false
+
+        opentelemetry-collector:
+          config:
+            exporters:
+              otlphttp/elastic:
+                endpoint: "http://192.168.68.34:8200"
+                tls:
+                  insecure: true
+              # Remove the now-dangling exporters that pointed at the
+              # disabled backends above — the collector fails to start if
+              # any declared exporter isn't referenced by a pipeline, so
+              # these must be nulled out, not just left unreferenced.
+              otlp_grpc/jaeger: null
+              otlp_http/prometheus: null
+              opensearch: null
+            service:
+              pipelines:
+                traces:
+                  exporters: [otlphttp/elastic, debug, span_metrics]
+                metrics:
+                  exporters: [otlphttp/elastic, debug]
+                logs:
+                  exporters: [otlphttp/elastic, debug]
+
+        components:
+          # frontend-proxy (not frontend directly) is the demo's actual
+          # entry point — it fronts the Next.js frontend AND proxies
+          # /otlp-http/* to the collector for browser-side telemetry, so
+          # the Ingress targets this component's service (port 8080).
+          frontend-proxy:
+            ingress:
+              enabled: true
+              ingressClassName: traefik
+              annotations:
+                traefik.ingress.kubernetes.io/router.tls: "true"
+                traefik.ingress.kubernetes.io/router.tls.certresolver: cloudflare
+              hosts:
+                - host: otel-demo.homelab.bcochofel.com
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      port: 8080
+              # No secretName: the certresolver annotation above means
+              # Traefik manages the cert itself via ACME, it doesn't read
+              # a cert from a Kubernetes TLS Secret here.
+              tls:
+                - hosts:
+                    - otel-demo.homelab.bcochofel.com
+          # The chart's default value for this env var assumes browser
+          # access via `kubectl port-forward` (`localhost:8080`) — wrong
+          # once real Ingress access replaces that. Must match the
+          # frontend-proxy Ingress host above exactly, or browser-side
+          # traces silently stop reaching the collector (the request goes
+          # to the browser's own localhost instead of this hostname).
+          frontend:
+            envOverrides:
+              - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+                value: "https://otel-demo.homelab.bcochofel.com/otlp-http/v1/traces"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: otel-demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

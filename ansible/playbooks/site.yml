@@ -1,0 +1,15 @@
+---
+# Full provision. Run after `terraform apply` has generated
+# inventory/hosts.ini.
+- name: Bootstrap
+  import_playbook: 00-bootstrap.yml
+- name: K3s server
+  import_playbook: 10-k3s-server.yml
+- name: K3s agents
+  import_playbook: 20-k3s-agent.yml
+- name: Traefik
+  import_playbook: 25-traefik.yml
+- name: ArgoCD
+  import_playbook: 30-argocd.yml
+- name: Health check
+  import_playbook: 99-healthcheck.yml

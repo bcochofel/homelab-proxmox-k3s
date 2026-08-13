@@ -1,0 +1,31 @@
+# ============================================================================
+# Root "app of apps" — the one Application the argocd Ansible role applies
+# directly (see ansible/roles/argocd). Everything else on this cluster is
+# managed by ArgoCD from here on: adding a new app is a new YAML file under
+# argocd/apps/, committed and pushed — this root app's auto-sync picks it
+# up on its own, no re-run of Ansible needed.
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/bcochofel/homelab-proxmox-k3s.git
+    targetRevision: main
+    path: argocd/apps
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

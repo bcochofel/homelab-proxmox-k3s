@@ -1,0 +1,7 @@
+---
+# tasks file for common — preflight checks for a Packer-provisioned host.
+# This role only verifies the host is ready before k3s_common/k3s_server/
+# k3s_agent run.
+
+- name: Include checks/asserts
+  ansible.builtin.include_tasks: asserts.yml

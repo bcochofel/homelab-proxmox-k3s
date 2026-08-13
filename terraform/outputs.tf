@@ -1,35 +1,15 @@
 output "servers" {
+  description = "K3s server node name -> {vmid, ip}"
   value = {
-    for k, v in resource.proxmox_vm_qemu.servers :
-    k => {
-      name = v.name
-      ip   = split("=", split("/", v.ipconfig0)[0])[1]
-    }
+    for k, v in module.k3s_server :
+    k => { vmid = v.vmid, ip = v.ip }
   }
-}
-
-output "servers_ips" {
-  value = flatten([
-    for srv_key, srv in resource.proxmox_vm_qemu.servers : [
-      split("=", split("/", srv.ipconfig0)[0])[1]
-    ]
-  ])
 }
 
 output "agents" {
+  description = "K3s agent node name -> {vmid, ip}"
   value = {
-    for k, v in resource.proxmox_vm_qemu.agents :
-    k => {
-      name = v.name
-      ip   = split("=", split("/", v.ipconfig0)[0])[1]
-    }
+    for k, v in module.k3s_agent :
+    k => { vmid = v.vmid, ip = v.ip }
   }
-}
-
-output "agents_ips" {
-  value = flatten([
-    for srv_key, srv in resource.proxmox_vm_qemu.agents : [
-      split("=", split("/", srv.ipconfig0)[0])[1]
-    ]
-  ])
 }

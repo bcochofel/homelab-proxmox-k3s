@@ -1,0 +1,124 @@
+---
+- name: K3s cluster health check
+  hosts: k3s_server[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for every node to report Ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl get nodes --no-headers | awk '{print $2}' | grep -v -x Ready || true
+      register: _not_ready_nodes
+      until: _not_ready_nodes.stdout == ""
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Confirm the argocd-server deployment is available
+      ansible.builtin.command: >
+        kubectl -n {{ argocd_namespace }} get deploy argocd-server
+        -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+      register: _argocd_available
+      failed_when: _argocd_available.stdout != "True"
+      changed_when: false
+
+    - name: Check the root app-of-apps sync/health status
+      ansible.builtin.command: >
+        kubectl -n {{ argocd_namespace }} get application root
+        -o jsonpath='{.status.sync.status}/{.status.health.status}'
+      register: _root_app_status
+      until: _root_app_status.stdout == "Synced/Healthy"
+      retries: 18
+      delay: 10
+      changed_when: false
+      # Non-fatal: the root app pulling opentelemetry-demo's chart from a
+      # public Helm repo and scheduling ~20 pods can legitimately take
+      # longer than this retry budget on a homelab node — don't fail the
+      # whole playbook run over slow-but-progressing sync, just report it.
+      failed_when: false
+
+    - name: Report root app-of-apps status
+      ansible.builtin.debug:
+        msg: >-
+          argocd Application "root" sync/health = {{ _root_app_status.stdout }}.
+          {{ 'Not yet Synced/Healthy — check `kubectl -n argocd get applications` '
+             ~ 'manually, this can take a few minutes on first sync.'
+             if _root_app_status.stdout != 'Synced/Healthy' else '' }}
+
+    # Hands the operator a working kubectl context — nothing before this
+    # writes the kubeconfig anywhere but k3s-srv1 itself
+    # (/etc/rancher/k3s/k3s.yaml), so without this kubectl/helm/k9s on the
+    # workstation running Ansible have nothing to point at. Merged into
+    # ~/.kube/config (kubectl's default) rather than requiring
+    # `export KUBECONFIG=...` for every command — renamed off K3s' generic
+    # "default" cluster/context/user names first so the merge can't
+    # collide with or clobber any other cluster already in that file.
+    - name: Fetch the K3s kubeconfig to the Ansible control node
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../k3s-homelab.kubeconfig"
+        flat: true
+      changed_when: false
+
+    - name: Point the fetched kubeconfig at the server's real IP, not 127.0.0.1
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/../k3s-homelab.kubeconfig"
+        regexp: '127\.0\.0\.1'
+        replace: "{{ ansible_host }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Rename the cluster/context/user off K3s' generic "default"
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/../k3s-homelab.kubeconfig"
+        regexp: '\bdefault\b'
+        replace: k3s-homelab
+      delegate_to: localhost
+      become: false
+
+    - name: Restrict the fetched kubeconfig's permissions (embeds a client cert/key)
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../k3s-homelab.kubeconfig"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Ensure ~/.kube exists on the Ansible control node
+      ansible.builtin.file:
+        path: ~/.kube
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Merge the k3s-homelab context into ~/.kube/config (kubectl's default)
+      ansible.builtin.shell: |
+        set -o pipefail
+        KUBECONFIG=~/.kube/config:{{ playbook_dir }}/../k3s-homelab.kubeconfig \
+          kubectl config view --flatten > ~/.kube/config.tmp
+        mv ~/.kube/config.tmp ~/.kube/config
+      delegate_to: localhost
+      become: false
+      changed_when: true
+
+    - name: Switch the current kubectl context to k3s-homelab
+      ansible.builtin.command: kubectl config use-context k3s-homelab
+      delegate_to: localhost
+      become: false
+      changed_when: true
+
+    - name: Restrict ~/.kube/config's permissions (embeds a client cert/key)
+      ansible.builtin.file:
+        path: ~/.kube/config
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Report kubeconfig location
+      ansible.builtin.debug:
+        msg: >-
+          Merged into ~/.kube/config as context "k3s-homelab" (now the
+          current context) — kubectl/helm/k9s/kubectx work with no extra
+          flags or KUBECONFIG env var needed. A standalone copy also
+          lives at {{ playbook_dir }}/../k3s-homelab.kubeconfig
+          (gitignored — never commit it, it embeds a client cert/key).
