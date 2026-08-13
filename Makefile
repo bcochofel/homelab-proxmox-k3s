@@ -1,6 +1,6 @@
 .PHONY: help debug check install install-binaries \
 		install-terraform install-terraform-docs install-trivy install-tflint install-packer install-sops install-kubectl \
-		install-helm install-k9s install-kubectx install-kubens \
+		install-helm install-k9s install-kubectx install-kubens install-argocd \
 		clean direnv-allow pre-commit-install \
 		packer-init tf-init venv ansible-install ansible-deps
 
@@ -37,6 +37,9 @@ HELM_VERSION := 4.2.4
 K9S_VERSION := 0.51.0
 # kubectx and kubens ship from the same repo/release, always in lockstep
 KUBECTX_VERSION := 0.11.0
+# Tracks argocd_version (ansible/inventory/group_vars/all.yml) — same
+# exact-match-over-compatible-range reasoning as KUBECTL_VERSION above.
+ARGOCD_VERSION := 3.5.1
 
 # Directory variables
 BIN_DIR := $(HOME)/bin
@@ -97,6 +100,7 @@ TRIVY_URL := https://github.com/aquasecurity/trivy/releases/download/v$(TRIVY_VE
 TFLINT_URL := https://github.com/terraform-linters/tflint/releases/download/v$(TFLINT_VERSION)/tflint_$(OS_LOWER)_$(ARCH).zip
 PACKER_URL := https://releases.hashicorp.com/packer/$(PACKER_VERSION)/packer_$(PACKER_VERSION)_$(OS_LOWER)_$(ARCH).zip
 SOPS_URL := https://github.com/getsops/sops/releases/download/v$(SOPS_VERSION)/sops-v$(SOPS_VERSION).$(OS_LOWER).$(ARCH)
+ARGOCD_URL := https://github.com/argoproj/argo-cd/releases/download/v$(ARGOCD_VERSION)/argocd-$(OS_LOWER)-$(ARCH)
 KUBECTL_URL := https://dl.k8s.io/release/v$(KUBECTL_VERSION)/bin/$(OS_LOWER)/$(ARCH)/kubectl
 HELM_URL := https://get.helm.sh/helm-v$(HELM_VERSION)-$(OS_LOWER)-$(ARCH).tar.gz
 K9S_URL := https://github.com/derailed/k9s/releases/download/v$(K9S_VERSION)/k9s_$(OS)_$(ARCH).tar.gz
@@ -151,6 +155,7 @@ debug: ## Show detected system information and configured tool versions
 	@echo "  Helm:            $(HELM_VERSION)"
 	@echo "  k9s:             $(K9S_VERSION)"
 	@echo "  kubectx/kubens:  $(KUBECTX_VERSION)"
+	@echo "  argocd:          $(ARGOCD_VERSION)"
 	@echo ""
 	@echo "Download URLs:"
 	@echo "  Terraform:       $(TERRAFORM_URL)"
@@ -164,6 +169,7 @@ debug: ## Show detected system information and configured tool versions
 	@echo "  k9s:             $(K9S_URL)"
 	@echo "  kubectx:         $(KUBECTX_URL)"
 	@echo "  kubens:          $(KUBENS_URL)"
+	@echo "  argocd:          $(ARGOCD_URL)"
 	@echo ""
 	@echo "Directories:"
 	@echo "  BIN_DIR:         $(BIN_DIR)"
@@ -181,6 +187,7 @@ debug: ## Show detected system information and configured tool versions
 		echo "  k9s:             $$($(BIN_DIR)/k9s version --short 2>/dev/null || echo 'not installed')"; \
 		echo "  kubectx:         $$($(BIN_DIR)/kubectx --version 2>/dev/null || echo 'not installed')"; \
 		echo "  kubens:          $$($(BIN_DIR)/kubens --version 2>/dev/null || echo 'not installed')"; \
+		echo "  argocd:          $$($(BIN_DIR)/argocd version --client --short 2>/dev/null || echo 'not installed')"; \
 	else \
 		echo "No tools installed yet. Run 'make install' to install them."; \
 	fi
@@ -199,11 +206,12 @@ check: ## Check installed binaries and upgrade any that are missing or out of da
 	@$(call check_and_upgrade,k9s,version --short,$(K9S_VERSION),install-k9s)
 	@$(call check_and_upgrade,kubectx,--version,$(KUBECTX_VERSION),install-kubectx)
 	@$(call check_and_upgrade,kubens,--version,$(KUBECTX_VERSION),install-kubens)
+	@$(call check_and_upgrade,argocd,version --client --short,$(ARGOCD_VERSION),install-argocd)
 	@echo "✅ Check complete"
 
 install: check direnv-allow pre-commit-install ansible-deps ## Prepare everything a contributor needs: pinned binaries, direnv approval, pre-commit hooks, Ansible virtualenv + collections
 
-install-binaries: install-terraform install-terraform-docs install-trivy install-tflint install-packer install-sops install-kubectl install-helm install-k9s install-kubectx install-kubens ## Force-reinstall all binaries regardless of current version
+install-binaries: install-terraform install-terraform-docs install-trivy install-tflint install-packer install-sops install-kubectl install-helm install-k9s install-kubectx install-kubens install-argocd ## Force-reinstall all binaries regardless of current version
 	@echo "✅ Binaries installed successfully"
 
 install-terraform:
@@ -297,6 +305,12 @@ install-kubens:
 	@mv /tmp/kubens $(BIN_DIR)/kubens
 	@chmod +x $(BIN_DIR)/kubens
 	@rm /tmp/kubens.tar.gz
+
+install-argocd:
+	@echo "  → Installing argocd $(ARGOCD_VERSION)..."
+	@mkdir -p $(BIN_DIR)
+	@curl -fsSL $(ARGOCD_URL) -o $(BIN_DIR)/argocd
+	@chmod +x $(BIN_DIR)/argocd
 
 clean: ## Remove temporary installation files
 	@echo "🧹 Cleaning temporary files..."

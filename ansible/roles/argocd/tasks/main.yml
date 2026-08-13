@@ -48,3 +48,39 @@
   ansible.builtin.command: kubectl apply -f /tmp/argocd-root-app.yaml
   register: _argocd_root_app
   changed_when: "'created' in _argocd_root_app.stdout or 'configured' in _argocd_root_app.stdout"
+
+# ----------------------------------------------------------------------------
+# Expose ArgoCD's own UI/API via Traefik instead of only `kubectl
+# port-forward`. argocd-server terminates its own TLS by default; since
+# Traefik terminates TLS at the edge (Cloudflare DNS-01, same as
+# otel-demo's Ingress), argocd-server needs server.insecure=true so it
+# serves plain HTTP internally rather than double-wrapping TLS.
+# ----------------------------------------------------------------------------
+- name: Configure argocd-server to serve plain HTTP (Traefik terminates TLS at the edge)
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} patch configmap argocd-cmd-params-cm
+    --type merge -p '{"data":{"server.insecure":"true"}}'
+  register: _argocd_insecure
+  changed_when: "'patched' in _argocd_insecure.stdout and 'not patched' not in _argocd_insecure.stdout"
+
+- name: Restart argocd-server to pick up the insecure setting
+  ansible.builtin.command: kubectl -n {{ argocd_namespace }} rollout restart deploy/argocd-server
+  when: _argocd_insecure is changed
+  changed_when: true
+
+- name: Wait for argocd-server to roll out after the restart
+  ansible.builtin.command: >
+    kubectl -n {{ argocd_namespace }} rollout status deploy/argocd-server --timeout=300s
+  when: _argocd_insecure is changed
+  changed_when: false
+
+- name: Copy the ArgoCD server Ingress manifest to the server
+  ansible.builtin.copy:
+    src: argocd-ingress.yaml
+    dest: /tmp/argocd-ingress.yaml
+    mode: "0644"
+
+- name: Apply the ArgoCD server Ingress (Traefik, Cloudflare DNS-01)
+  ansible.builtin.command: kubectl apply -f /tmp/argocd-ingress.yaml
+  register: _argocd_ingress
+  changed_when: "'created' in _argocd_ingress.stdout or 'configured' in _argocd_ingress.stdout"
