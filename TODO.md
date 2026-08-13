@@ -85,20 +85,20 @@ no auth) instead — that's the design; everything below is what's still
 needed to prove it actually works end to end, plus close the one real gap
 (only demo-service traces flow today, not general node/pod logs):
 
-- [ ] `otel-demo` Application syncs — `kubectl -n otel-demo get pods` all
-      `Running`, nothing stuck `Pending` on insufficient CPU/memory
-      (this cluster's 2-agent/4GB-each budget is sized against Proxmox
-      capacity, not validated against the actual chart's footprint — see
-      `CLAUDE.md`). 25/28 pods `Running` as of the first live sync;
-      `image-provider`/`telemetry-docs` were crash-looping
-      (`socket() [::]:PORT failed` — these K3s nodes have no IPv6 stack at
-      all, but the images' baked-in nginx.conf.template listens on `[::]`
-      unconditionally) — fixed in `otel-demo.yaml` by mounting a
-      `[::]`-stripped copy of each upstream template via
-      `mountedConfigMaps`; verified the mechanism works live
-      (`image-provider` pod went `Running` once its ConfigMap was actually
-      mounted) but the fix needs to land via git for ArgoCD's `selfHeal`
-      to stop reverting the live-only test — re-verify once merged.
+- [x] `otel-demo` Application syncs — `kubectl -n otel-demo get pods` all
+      `Running` (28/28), `kubectl -n argocd get applications` shows
+      `otel-demo` as `Synced`/`Healthy`, confirmed live after PR #17
+      merged (`2.1.1`). This cluster's 2-agent/4GB-each budget turned out
+      sufficient for the full chart — no `Pending` pods, no need to trim
+      `valuesObject`. Three components crash-looped on first sync, all
+      the same root cause (these K3s nodes have no IPv6 stack at all) but
+      two different mechanisms: `image-provider`/`telemetry-docs`
+      (nginx, `listen [::]:PORT` baked into their `nginx.conf.template`)
+      fixed via a `[::]`-stripped copy mounted over the original
+      (PR #16); `flagd-ui` (Elixir/Phoenix sidecar, hardcoded
+      `ip: {0,0,0,0,0,0,0,0}` in the compiled release's `runtime.exs`,
+      not env-driven) fixed the same way — mounting a replacement file at
+      the exact path its boot script re-evaluates from (PR #17).
 - [ ] Confirm traces/metrics/logs actually land in Kibana's APM/
       Observability UI, not just that the collector's exporter didn't
       error — `otel-demo.yaml`'s apm-server endpoint (plain HTTP, no auth)
