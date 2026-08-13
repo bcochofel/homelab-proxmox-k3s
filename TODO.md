@@ -54,18 +54,23 @@ instead of duplicating status inline.
       Traefik chart K3s v1.36.3+k3s1 vendors.
 - [x] `argocd` role installs cleanly, `argocd-server` deployment reaches
       `Available`, confirmed live.
-- [ ] `argocd/root-app.yaml` syncs successfully — `kubectl -n argocd get
-      applications` shows `root` as `Synced`/`Healthy`. Currently stuck at
-      `Unknown`/`Healthy`: repo-server clones `homelab-proxmox-k3s.git`
-      fine but `argocd/apps` doesn't exist on `origin/main` yet — the
-      whole bpg/K3s/ArgoCD rewrite has been sitting uncommitted locally
-      this entire time. Blocks on merging the rewrite PR (2.0.0) to
-      `main`; re-check once that lands.
-- [ ] ArgoCD UI reachable (`kubectl -n argocd port-forward svc/argocd-server
-      8080:443`) with the initial admin password from
-      `argocd-initial-admin-secret` — mechanism documented (`docs/
-      ARGOCD.md`, README's Verify section), not yet exercised in a
-      browser. Rotate the password once confirmed working.
+- [x] `argocd/root-app.yaml` syncs successfully — `kubectl -n argocd get
+      applications` shows `root` as `Synced`/`Healthy`, confirmed live
+      after the 2.0.0 rewrite PR (#13) merged to `main`. Needed one manual
+      hard-refresh (`kubectl -n argocd annotate application root
+      argocd.argoproj.io/refresh=hard --overwrite`) to bypass ArgoCD's
+      cached pre-merge `ComparisonError` rather than waiting out its
+      ~3min git polling interval — not a bug, just cache staleness.
+- [x] ArgoCD UI reachable at `https://argocd.homelab.bcochofel.com` via
+      Traefik (real Let's Encrypt cert via the `cloudflare` DNS-01
+      resolver, same as otel-demo), not just `kubectl port-forward` —
+      `ansible/roles/argocd`'s new `argocd-cmd-params-cm` patch
+      (`server.insecure: "true"`, since Traefik terminates TLS at the
+      edge) + `files/argocd-ingress.yaml`, confirmed live (`curl` returns
+      `200` with the cert verified, no `-k` needed). `kubectl port-forward`
+      still works as a fallback. Still need to: add the DNS record in the
+      core repo (same manual cross-repo step as otel-demo's), and rotate
+      the initial admin password.
 
 ## Phase 3 — This cluster as a workload in the Elastic Observability stack
 
@@ -84,7 +89,16 @@ needed to prove it actually works end to end, plus close the one real gap
       `Running`, nothing stuck `Pending` on insufficient CPU/memory
       (this cluster's 2-agent/4GB-each budget is sized against Proxmox
       capacity, not validated against the actual chart's footprint — see
-      `CLAUDE.md`).
+      `CLAUDE.md`). 25/28 pods `Running` as of the first live sync;
+      `image-provider`/`telemetry-docs` were crash-looping
+      (`socket() [::]:PORT failed` — these K3s nodes have no IPv6 stack at
+      all, but the images' baked-in nginx.conf.template listens on `[::]`
+      unconditionally) — fixed in `otel-demo.yaml` by mounting a
+      `[::]`-stripped copy of each upstream template via
+      `mountedConfigMaps`; verified the mechanism works live
+      (`image-provider` pod went `Running` once its ConfigMap was actually
+      mounted) but the fix needs to land via git for ArgoCD's `selfHeal`
+      to stop reverting the live-only test — re-verify once merged.
 - [ ] Confirm traces/metrics/logs actually land in Kibana's APM/
       Observability UI, not just that the collector's exporter didn't
       error — `otel-demo.yaml`'s apm-server endpoint (plain HTTP, no auth)
@@ -119,18 +133,17 @@ needed to prove it actually works end to end, plus close the one real gap
 
 ## Phase 4 — Hardening / follow-up
 
-- [ ] Install the Kubernetes MCP and ArgoCD MCP servers (requested
-      alongside this refactor, deliberately deferred — MCP config is a
-      `claude mcp add` change, not a repo file).
-- [ ] Expose the ArgoCD UI via Traefik too (its own Ingress + hostname,
-      e.g. `argocd.homelab.bcochofel.com`), instead of only
-      `kubectl port-forward` — scoped out of the initial Traefik setup
-      (which only covers otel-demo) to keep that change reviewable; same
-      cert-resolver pattern applies directly. ArgoCD's own install
-      manifest also needs `--insecure` or a TLS passthrough tweak on the
-      `argocd-server` since it terminates its own TLS by default — check
-      current ArgoCD docs for the supported way to front it with an
-      external Ingress before implementing.
+- [x] Install the Kubernetes MCP and ArgoCD MCP servers, user scope
+      (`kubernetes-mcp-server`, points at `~/.kube/config`; `argocd-mcp`
+      by Akuity, needs `argocd account generate-token` — required
+      enabling the `apiKey` capability on the `admin` account first,
+      off by default). Both `claude mcp list` as Connected. `argocd-mcp`
+      only works while a `kubectl port-forward svc/argocd-server 8080:443`
+      is running, pending the DNS record below; repoint `ARGOCD_BASE_URL`
+      at the real hostname once that's in place.
+- [x] Expose the ArgoCD UI via Traefik too — see Phase 2's entry above
+      (same work item, tracked there since it's really a Phase 2
+      "green ArgoCD" concern).
 - [ ] Revisit K3s/ArgoCD/`opentelemetry-demo` chart version pins
       periodically (`ansible/inventory/group_vars/all.yml`,
       `argocd/apps/otel-demo.yaml`) — check

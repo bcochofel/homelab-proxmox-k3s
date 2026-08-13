@@ -105,6 +105,139 @@ spec:
             envOverrides:
               - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
                 value: "https://otel-demo.homelab.bcochofel.com/otlp-http/v1/traces"
+          # image-provider and telemetry-docs both crash-loop on this
+          # cluster: their baked-in nginx.conf.template (src/image-provider
+          # and src/telemetry-docs in the opentelemetry-demo repo) listens
+          # on both IPv4 and `[::]` (IPv6), and these K3s nodes have no
+          # IPv6 stack at all (no /proc/net/if_inet6) — nginx fails with
+          # "socket() [::]:PORT failed (97: Address family not supported by
+          # protocol)". Fix: mount a copy of the same template with the
+          # `listen [::]:...;` line removed at /nginx.conf.template, the
+          # exact path each image's entrypoint envsubst's into
+          # /etc/nginx/nginx.conf before starting nginx — everything else
+          # byte-for-byte identical to upstream's template.
+          image-provider:
+            mountedConfigMaps:
+              - name: nginx-conf-template
+                mountPath: /nginx.conf.template
+                subPath: nginx.conf.template
+                data:
+                  nginx.conf.template: |
+                    load_module modules/ngx_otel_module.so;
+
+                    pid /tmp/nginx.pid;
+
+                    events {
+                        worker_connections 1024;
+                    }
+
+                    http {
+                        otel_exporter {
+                            endpoint ${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_GRPC};
+                        }
+                        otel_trace on;
+                        otel_trace_context propagate;
+                        otel_service_name ${OTEL_SERVICE_NAME};
+                        otel_span_name image-provider;
+
+
+                        include mime.types;
+                        sendfile on;
+                        server {
+                            listen ${IMAGE_PROVIDER_PORT};
+
+                            resolver 127.0.0.11;
+                            autoindex off;
+
+                            server_name _;
+                            server_tokens off;
+
+                            root /static;
+                            gzip_static on;
+
+                            location /status {
+                                stub_status on;
+                                access_log  on;
+                                allow all;
+                            }
+                        }
+                    }
+          telemetry-docs:
+            mountedConfigMaps:
+              - name: nginx-conf-template
+                mountPath: /nginx.conf.template
+                subPath: nginx.conf.template
+                data:
+                  nginx.conf.template: |
+                    load_module modules/ngx_otel_module.so;
+
+                    pid /tmp/nginx.pid;
+
+                    events {
+                        worker_connections 1024;
+                    }
+
+                    http {
+                        # Map URIs to low-cardinality route patterns
+                        map $uri $otel_route {
+                            ~^/attributes/[^/]+\.html$  "/attributes/{business_domain}";
+                            ~^/services/[^/]+\.html$    "/services/{service_name}";
+                            ~^/index\.html$             "/index";
+                            ~^/$                        "/";
+                            default                     $uri;
+                        }
+
+                        otel_exporter {
+                            endpoint ${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_GRPC};
+                            interval 5s;
+                            batch_size 256;
+                            batch_count 2;
+                        }
+                        otel_trace on;
+                        otel_trace_context propagate;
+                        otel_service_name ${OTEL_SERVICE_NAME};
+                        otel_span_name "$request_method $otel_route";
+
+
+                        include mime.types;
+                        sendfile on;
+                        server {
+                            listen ${TELEMETRY_DOCS_PORT};
+
+                            resolver 127.0.0.11;
+                            autoindex off;
+
+                            server_name _;
+                            server_tokens off;
+
+                            root /static;
+                            gzip_static on;
+
+                            # Don't trace static assets
+                            location ~* \.(css|js|png|jpg|jpeg|svg|ico|woff|woff2|ttf|eot|map|json|xml|gz)$ {
+                                otel_trace off;
+                                expires 1y;
+                                add_header Cache-Control "public, immutable";
+                            }
+
+                            location /assets/ {
+                                otel_trace off;
+                                expires 1y;
+                                add_header Cache-Control "public, immutable";
+                            }
+
+                            location /search/ {
+                                otel_trace off;
+                            }
+
+                            location /status {
+                                otel_trace off;
+                                stub_status on;
+                                access_log  on;
+                                allow all;
+                            }
+                        }
+                    }
   destination:
     server: https://kubernetes.default.svc
     namespace: otel-demo
