@@ -41,12 +41,13 @@ variable "vm_template" {
 # --------------------------------------------------------
 variable "k3s_server_nodes" {
   type = list(object({
-    name    = string
-    vmid    = optional(number) # omitted -> Proxmox auto-assigns the next available ID
-    ip_cidr = string           # e.g. 192.168.68.40/22
-    cores   = number
-    memory  = number # MB
-    disk    = number # GB
+    name       = string
+    vmid       = optional(number) # omitted -> Proxmox auto-assigns the next available ID
+    ip_cidr    = string           # e.g. 192.168.68.40/22
+    cores      = number
+    memory     = number           # MB
+    disk       = number           # GB
+    extra_disk = optional(number) # GB, blank second disk at scsi1
   }))
   description = "K3s server (control-plane) node definitions"
   default = [
@@ -60,23 +61,33 @@ variable "k3s_server_nodes" {
     # otel-demo redistributed, so bumped again to 8GB for real headroom.
     # pve1 has ample spare CPU (~2 of 16 physical cores actually in use
     # cluster-wide when this was first sized) and enough unallocated RAM.
-    { name = "k3s-srv1", ip_cidr = "192.168.68.40/22", cores = 4, memory = 8192, disk = 50 },
+    #
+    # extra_disk (50GB, scsi1) added after k3s-srv1 hit kubelet
+    # DiskPressure — the Packer template's LVM layout only gives `/`
+    # (where /var/lib/rancher/k3s and /var/lib/kubelet live) 25GB of the
+    # 50GB template disk, splitting the rest into home/tmp/opt this
+    # workload barely touches. The new disk gets added to the existing
+    # volume group and root extended onto it (see TODO.md) rather than
+    # reshuffling the existing LVs live. All three nodes get one, since
+    # agent1/agent2 were already trending the same direction.
+    { name = "k3s-srv1", ip_cidr = "192.168.68.40/22", cores = 4, memory = 8192, disk = 50, extra_disk = 50 },
   ]
 }
 
 variable "k3s_agent_nodes" {
   type = list(object({
-    name    = string
-    vmid    = optional(number) # omitted -> Proxmox auto-assigns the next available ID
-    ip_cidr = string
-    cores   = number
-    memory  = number
-    disk    = number
+    name       = string
+    vmid       = optional(number) # omitted -> Proxmox auto-assigns the next available ID
+    ip_cidr    = string
+    cores      = number
+    memory     = number
+    disk       = number
+    extra_disk = optional(number)
   }))
   description = "K3s agent (worker) node definitions"
   default = [
-    { name = "k3s-agent1", ip_cidr = "192.168.68.41/22", cores = 2, memory = 4096, disk = 50 },
-    { name = "k3s-agent2", ip_cidr = "192.168.68.42/22", cores = 2, memory = 4096, disk = 50 },
+    { name = "k3s-agent1", ip_cidr = "192.168.68.41/22", cores = 2, memory = 4096, disk = 50, extra_disk = 50 },
+    { name = "k3s-agent2", ip_cidr = "192.168.68.42/22", cores = 2, memory = 4096, disk = 50, extra_disk = 50 },
   ]
 }
 

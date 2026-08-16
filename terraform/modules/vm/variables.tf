@@ -49,6 +49,12 @@ variable "disk" {
   default     = 60
 }
 
+variable "extra_disk" {
+  type        = number
+  description = "Optional second, blank disk size in GB, attached at scsi1. Leave null (default) for a single-disk VM."
+  default     = null
+}
+
 variable "datastore_id" {
   type        = string
   description = "Proxmox datastore for disk + cloud-init"
