@@ -42,6 +42,21 @@ cd ansible
   read from the first `k3s_server` host's hostvars
   (`hostvars[groups['k3s_server'][0]]`). Requires the `k3s_server` play to
   have already run earlier in the same `ansible-playbook` invocation.
+- **`cilium`** — runs once, `hosts: k3s_server[0]`, right after
+  `k3s_server` and before agents join: `k3s_server`'s `INSTALL_K3S_EXEC`
+  disables Flannel/kube-proxy (`--flannel-backend=none
+  --disable-network-policy --disable-kube-proxy`), and this role installs
+  Cilium as the replacement CNI via Cilium's own official `cilium` CLI
+  (not K3s' `HelmChartConfig` mechanism — that installs charts via an
+  in-cluster Job pod, which itself needs a working CNI to schedule, a
+  chicken-and-egg problem once Flannel is gone). `cilium install` sets
+  `kubeProxyReplacement=true`, points `k8sServiceHost`/`k8sServicePort` at
+  the API server directly (kube-proxy normally provides that routing),
+  and enables Hubble (relay + UI). Also applies a Traefik Ingress for
+  Hubble UI (`hubble.homelab.bcochofel.com`). The "wait for the node to
+  report Ready" check lives here, not in `k3s_server` — the node can't go
+  Ready until a CNI exists. See `CLAUDE.md`'s "Decisions that are
+  deliberate" for the full rationale.
 - **`traefik`** — runs once, `hosts: k3s_server[0]`, after the cluster is
   up: configures K3s' *bundled* Traefik (already running as a default
   addon — `k3s_server` installs with no `--disable traefik`) with a
@@ -87,6 +102,10 @@ cd ansible
   `common`.
 - `10-k3s-server.yml` — `hosts: k3s_server`, runs `k3s_common` ->
   `k3s_server`.
+- `15-cilium.yml` — `hosts: k3s_server[0]`, runs `cilium`. Between the
+  server and agent plays — agents joining with no CNI yet is harmless
+  (they just sit `NotReady` until Cilium's DaemonSet reaches them), but
+  installing Cilium first keeps that window from opening at all.
 - `20-k3s-agent.yml` — `hosts: k3s_agent`, runs `k3s_common` ->
   `k3s_agent`. Depends on `10-k3s-server.yml` having already run in the
   same invocation (needs `k3s_node_token` in hostvars).
@@ -111,9 +130,10 @@ cd ansible
   before a run, confirmed it was still there after) — and set as the
   current context. `kubectl`/`helm`/`k9s`/`kubectx` all work immediately
   afterward with no flags or `KUBECONFIG` env var needed.
-- `site.yml` — chains all six via `import_playbook`, in order (bootstrap
-  -> k3s server -> k3s agents -> traefik -> argocd -> healthcheck). This is
-  what `ansible-playbook playbooks/site.yml` actually runs.
+- `site.yml` — chains all seven via `import_playbook`, in order (bootstrap
+  -> k3s server -> Cilium CNI -> k3s agents -> traefik -> argocd ->
+  healthcheck). This is what `ansible-playbook playbooks/site.yml`
+  actually runs.
 
 ## Secrets
 

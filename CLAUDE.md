@@ -24,9 +24,9 @@ Packer (template) -> Terraform (clone VMs + generate inventory)
 
 Topology:
 
-- `k3s-srv1` (`192.168.68.25`) — K3s server (control-plane), single node, no
+- `k3s-srv1` (`192.168.68.40`) — K3s server (control-plane), single node, no
   HA embedded-etcd.
-- `k3s-agent1`/`k3s-agent2` (`192.168.68.26`/`.27`) — K3s agents (workers).
+- `k3s-agent1`/`k3s-agent2` (`192.168.68.41`/`.42`) — K3s agents (workers).
 
 This repo is the third leg of a three-repo homelab: `homelab-proxmox-core`
 (Caddy reverse proxy + DNS), `homelab-proxmox-elastic` (Elasticsearch +
@@ -41,29 +41,54 @@ elastic repo is where Elastic Observability gets learned.
 ## Decisions that are deliberate (do not "fix" these)
 
 - **Terraform Provider is `bpg/proxmox`, same as core/elastic**, with a
-  copy of their shared `terraform/modules/vm` module — **one local
-  change**: `nameserver` is `list(string)` here (both `192.168.68.42`
-  CoreDNS and `.43` Pihole), not a single string, for resolver redundancy.
-  This repo predates the bpg/modules-vm architecture (it used to run
-  Telmate + a bespoke `for_each` block) and was rewritten onto it for
-  structural parity with the other two repos, not migrated incrementally.
+  copy of their shared `terraform/modules/vm` module, kept byte-for-byte
+  identical (down to `vmid` being `optional(number)` — omitted from
+  `k3s_server_nodes`/`k3s_agent_nodes`' defaults so Proxmox auto-assigns
+  the next available ID, matching the core repo's own
+  `feat(dns): CoreDNS primary/secondary, Pihole ad-blocking-only, VM
+  re-IP` change; bpg's `vm_id` is Optional+Computed, so omitting it from
+  config after a VM already exists in state doesn't drift/recreate it, it
+  just keeps the already-assigned ID). `nameserver` (`list(string)`, both
+  repos) currently points at CoreDNS primary (`192.168.68.2`) and CoreDNS
+  secondary (`192.168.68.3`, AXFR-synced onto the user's QNAP NAS) — an
+  interim setup until Pihole primary (on the core repo's dns VM) and
+  Pihole secondary (a Raspberry Pi 3, `192.168.68.6`) are configured to
+  forward to CoreDNS and do ad-blocking only, at which point `nameserver`
+  moves to that Pihole pair instead. This repo predates the
+  bpg/modules-vm architecture (it used to run Telmate + a bespoke
+  `for_each` block) and was rewritten onto it for structural parity with
+  the other two repos, not migrated incrementally.
 - **Terraform State: HCP Terraform**, workspace `k3s-cluster` (carried
   forward from the pre-refactor version of this repo, not renamed).
-- **Topology (1 server + 2 agents, 2 vCPU/4GB/50GB each) was sized against
-  live Proxmox capacity, not picked round.** `pve1` has 16 vCPU/62.5GB
-  total; the core+elastic repos' VMs already allocate ~13 vCPU/~35GB
-  before this cluster exists. Adding 6 vCPU/12GB brings the host to
-  19 vCPU/47GB allocated (1.19x CPU overcommit — comfortable given every
-  existing VM idles at low single-digit CPU%). A 3-server HA control plane
-  was considered and rejected for now (would push to 25 vCPU/47GB, a
-  1.56x overcommit, for HA this homelab doesn't need) — see `TODO.md` if
-  that tradeoff is ever revisited. Disk is 50GB (not 40GB) per node,
+- **Topology (1 server + 2 agents, originally 2 vCPU/4GB/50GB each) was
+  sized against live Proxmox capacity, not picked round — `k3s-srv1` has
+  since been bumped to 4 vCPU/8GB, agents unchanged.** `pve1` has
+  16 vCPU/62.5GB total; the core+elastic repos' VMs already allocate
+  ~13 vCPU/~35GB before this cluster exists. This cluster's original
+  6 vCPU/12GB (all three nodes at 2/4) brought the host to 19 vCPU/47GB
+  allocated (1.19x CPU overcommit). `k3s-srv1` was then bumped to 4 vCPU/8GB
+  (Terraform `k3s_server_nodes`) after a live incident: Cilium's
+  operator/envoy/hubble-relay/hubble-ui are permanent additions on top of
+  K3s server + Traefik + all of ArgoCD on that one node, and while the
+  agents were briefly unreachable during a `site.yml` rerun, ArgoCD's
+  `automated`+`selfHeal` sync landed the *entire* ~28-pod `otel-demo`
+  chart on `k3s-srv1` alone — load average ~25 on 2 vCPU, memory nearly
+  exhausted, API server timing out TLS handshakes. Confirmed live via
+  Proxmox's own metrics before and after (`proxmox_get_vm_status`/
+  `proxmox_get_rrd_data`), not guessed. Current total: 8 vCPU/16GB for the
+  cluster, 21 vCPU/51GB allocated host-wide (1.31x CPU overcommit, ~82%
+  of host RAM allocated) — still comfortable, since actual host-wide CPU
+  usage at the time of the incident was ~2 of 16 physical cores; the
+  problem was entirely `k3s-srv1`'s own 2-vCPU ceiling, not host
+  contention. A 3-server HA control plane remains rejected for now (this
+  homelab doesn't need the availability, and the math above already needs
+  redoing if that's ever revisited) — see `TODO.md`. Disk is 50GB (not 40GB) per node,
   matching the `ubuntu-26.04-k3s` Packer template's disk size — the bpg
   provider can't shrink a cloned disk below its source, so Terraform's
   `disk` var can't go lower than whatever `packer/ubuntu-26.04/
   variables.auto.pkrvars.hcl`'s `disk_size` was built with.
-- **Packer builds `ubuntu-26.04-k3s`** (vmid `9003` — `9001` is elastic's
-  template, `9002` is core's), adapted from the core repo's minimal
+- **Packer builds `ubuntu-26.04-k3s`** (vmid `9002` — `9000` is core's
+  template, `9001` is elastic's), adapted from the core repo's minimal
   Docker-only template. **Docker is baked in for parity/debugging
   convenience only** — K3s doesn't need it, it ships its own embedded
   containerd. Swap-disable, kernel modules (`overlay`/`br_netfilter`), and
@@ -78,6 +103,29 @@ elastic repo is where Elastic Observability gets learned.
   add a dependency for idempotent applies" preference (see
   `.pre-commit-config.yaml`'s local `packer_fmt`/`ansible_lint` hooks for
   the same pattern elsewhere).
+- **Cilium replaces K3s' bundled Flannel + kube-proxy entirely** —
+  `k3s_server`'s `INSTALL_K3S_EXEC` passes `--flannel-backend=none
+  --disable-network-policy --disable-kube-proxy`, and the `cilium` role
+  (new playbook `15-cilium.yml`, runs right after the K3s server play and
+  before agents join) installs Cilium with `kubeProxyReplacement=true`
+  plus Hubble (relay + UI) enabled. Same secondary-goal reasoning as
+  Traefik below: this repo exists partly to build hands-on
+  Kubernetes/networking skills, and a full eBPF dataplane (with Hubble's
+  flow visibility to actually see it working) is more useful to learn on
+  than the Flannel/kube-proxy defaults. Installed via Cilium's own
+  official `cilium` CLI, not K3s' `HelmChartConfig`/`HelmChart` mechanism
+  (the pattern `traefik` uses below) — that mechanism installs charts via
+  an in-cluster Job pod, which itself needs a working CNI to schedule, a
+  chicken-and-egg problem once Flannel is gone; `cilium install` talks to
+  the API server directly and Cilium's own DaemonSet pods tolerate the
+  NotReady/uninitialized node taints, which is how Cilium bootstraps
+  itself into existence with no CNI yet present. Same "official installer,
+  not a generic Ansible collection" preference as K3s/ArgoCD above. Hubble
+  UI is fronted by Traefik too (`hubble.homelab.bcochofel.com`, same
+  Cloudflare DNS-01 pattern as `argocd.`/`otel-demo.`) — it has no
+  authentication of its own, a deliberate tradeoff for a LAN-only hostname
+  in a homelab optimized for learning the real tool, not for locking it
+  down.
 - **Traefik terminates its own TLS via Cloudflare DNS-01 — it is not
   proxied through the core repo's Caddy.** K3s bundles Traefik as its
   default ingress controller (`k3s_server` never passes `--disable
@@ -248,9 +296,10 @@ in practice: a plain `terraform apply` with no flag completed successfully.)
    & secrets" above for which keys, **including `cloudflare_api_token`**
    (Traefik's DNS-01 token) — the `traefik` role's preflight fails loudly
    if it's empty.
-4. After `ansible-playbook playbooks/site.yml` succeeds: add a DNS record
-   for `otel-demo.homelab.bcochofel.com` (pointed at `k3s-srv1`,
-   `192.168.68.25`) to the **core repo's** `dns_hosts` — manual,
+4. After `ansible-playbook playbooks/site.yml` succeeds: add DNS records
+   for `otel-demo.homelab.bcochofel.com`, `argocd.homelab.bcochofel.com`,
+   and `hubble.homelab.bcochofel.com` (all pointed at `k3s-srv1`,
+   `192.168.68.40`) to the **core repo's** `dns_hosts` — manual,
    cross-repo, not something this repo's Ansible can do. See
    `docs/ARGOCD.md`.
 

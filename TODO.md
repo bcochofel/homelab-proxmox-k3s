@@ -32,7 +32,9 @@ instead of duplicating status inline.
 - [x] Packer: `ubuntu-26.04-k3s` template builds cleanly (Docker, initrd
       network fix).
 - [x] Terraform: `k3s-srv1`/`k3s-agent1`/`k3s-agent2` VMs clone from the template,
-      static IPs `192.168.68.25`-`.27`, inventory generated.
+      static IPs `192.168.68.40`-`.42` (re-IP'd from the original
+      `.25`-`.27`, freed up by the core repo's proxy VM re-IP),
+      inventory generated.
 - [x] Ansible: `common` preflight passes, `k3s_common` prereqs apply
       cleanly, `k3s_server` brings up the control plane, `k3s_agent` joins
       both agents. `kubectl get nodes` shows all three `Ready`.
@@ -44,6 +46,30 @@ instead of duplicating status inline.
       work against the live cluster with zero flags/env vars, confirmed,
       including that a pre-existing unrelated context in `~/.kube/config`
       survives the merge untouched.
+- [x] Switched the CNI from K3s' bundled Flannel + kube-proxy to Cilium
+      (kube-proxy replacement, Hubble relay + UI) — new `cilium` role,
+      `15-cilium.yml` playbook, `k3s_server`'s `INSTALL_K3S_EXEC` flags.
+      See `CLAUDE.md`'s "Decisions that are deliberate". Confirmed live:
+      `cilium status` all `OK` (DaemonSets `3/3`, 44/44 pods managed),
+      `kubectl get nodes` all three `Ready`, `otel-demo`'s ~28 pods
+      redistributed across all three nodes once agents joined. `k3s-srv1`
+      bumped from 2 vCPU/4GB to 4 vCPU/8GB after a live resource-exhaustion
+      incident during this rollout (load average ~25 on 2 vCPU, memory
+      exhausted) — see `CLAUDE.md`'s topology-sizing note.
+- [ ] Traefik's Cloudflare DNS-01 cert resolver needs
+      `--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=
+      1.1.1.1:53,8.8.8.8:53` (now in `helmchartconfig.yaml.j2` and applied
+      live) because CoreDNS is authoritative for `homelab.bcochofel.com`
+      and without it Traefik's ACME zone-cut walk never reaches the real
+      `bcochofel.com` Cloudflare zone — see `docs/ARGOCD.md`'s Traefik
+      section. `argocd.homelab.bcochofel.com` confirmed getting a real
+      Let's Encrypt cert after the fix; `otel-demo`/`hubble` hit a DNS
+      propagation timeout on the same attempt (not the zone-lookup bug —
+      TXT records did get created, just didn't propagate to `1.1.1.1`/
+      `8.8.8.8` before lego's check window closed). Needs a follow-up
+      check that they succeed on Traefik's own retry, without forcing
+      another `rollout restart` too soon and burning more of Let's
+      Encrypt's per-domain failed-authorization rate limit.
 
 ## Phase 2 — Green ArgoCD + Traefik
 
@@ -68,9 +94,9 @@ instead of duplicating status inline.
       (`server.insecure: "true"`, since Traefik terminates TLS at the
       edge) + `files/argocd-ingress.yaml`, confirmed live (`curl` returns
       `200` with the cert verified, no `-k` needed). `kubectl port-forward`
-      still works as a fallback. Still need to: add the DNS record in the
-      core repo (same manual cross-repo step as otel-demo's), and rotate
-      the initial admin password.
+      still works as a fallback. DNS record added in the core repo,
+      confirmed resolving from `k3s-srv1` (CoreDNS/Pihole). Still need to
+      rotate the initial admin password.
 
 ## Phase 3 — This cluster as a workload in the Elastic Observability stack
 
@@ -99,6 +125,21 @@ needed to prove it actually works end to end, plus close the one real gap
       `ip: {0,0,0,0,0,0,0,0}` in the compiled release's `runtime.exs`,
       not env-driven) fixed the same way — mounting a replacement file at
       the exact path its boot script re-evaluates from (PR #17).
+- [ ] Superseding the PR #16/#17 app-level patches above: root-caused the
+      crash loops to the Packer template's `ipv6.disable=1` GRUB flag
+      (kernel IPv6 stack fully off, not just unaddressed), which will
+      keep hitting new components as the chart evolves. The template's
+      `late-commands` no longer set that flag (kernel stays IPv6-capable,
+      `dhcp6` stays `false` — no routable v6 address needed, apps just
+      need `bind()` on `[::]` to succeed), and the `image-provider`/
+      `telemetry-docs`/`flagd` overrides have been reverted out of
+      `otel-demo.yaml`. Neither takes effect until the pipeline is rerun
+      **in order**: `packer build` the template, replace/recreate the
+      three VMs in Terraform, rerun `ansible-playbook playbooks/site.yml`
+      — only then commit/push the `otel-demo.yaml` revert, since
+      ArgoCD's `automated`+`selfHeal` sync policy means pushing it any
+      earlier reintroduces the crash loops on the still-IPv6-disabled
+      running cluster.
 - [ ] Confirm traces/metrics/logs actually land in Kibana's APM/
       Observability UI, not just that the collector's exporter didn't
       error — `otel-demo.yaml`'s apm-server endpoint (plain HTTP, no auth)
@@ -107,12 +148,12 @@ needed to prove it actually works end to end, plus close the one real gap
 - [ ] If pods are `Pending` on resource pressure: trim `otel-demo`'s
       `valuesObject` further (replica counts, resource requests) before
       reconsidering the node topology itself.
-- [ ] Add the DNS record for `otel-demo.homelab.bcochofel.com` (pointed at
-      `k3s-srv1`, `192.168.68.25`) to the **core repo's** `dns_hosts` —
-      manual, cross-repo step, blocks reaching the demo by hostname at
-      all. Confirm Traefik actually issues a real cert (`kubectl -n
-      otel-demo describe ingress` / check for ACME errors in the
-      `traefik` pod's logs) once that record resolves.
+- [x] Add the DNS record for `otel-demo.homelab.bcochofel.com` (and
+      `argocd.homelab.bcochofel.com`) to the **core repo's** `dns_hosts`,
+      pointed at `k3s-srv1`/`192.168.68.40` — done, confirmed resolving
+      from `k3s-srv1` itself. Traefik issued real Let's Encrypt certs for
+      both (`openssl s_client` confirms `CN=Let's Encrypt` for each
+      hostname, not the Traefik default self-signed cert).
 - [ ] Confirm browser-side traces actually arrive (open the demo UI, place
       an order, check the trace shows up in Kibana) — validates the
       `PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` override in

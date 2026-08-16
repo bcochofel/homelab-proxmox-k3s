@@ -190,16 +190,18 @@ ansible-galaxy collection install -r requirements.yml
 ansible-playbook playbooks/site.yml
 ```
 
-Runs bootstrap -> K3s server -> K3s agents -> Traefik (Cloudflare DNS-01
-cert resolver) -> ArgoCD install + app-of-apps -> health check. See
+Runs bootstrap -> K3s server -> Cilium CNI (kube-proxy replacement,
+Hubble) -> K3s agents -> Traefik (Cloudflare DNS-01 cert resolver) ->
+ArgoCD install + app-of-apps -> health check. See
 [`docs/ANSIBLE.md`](docs/ANSIBLE.md) for the role/playbook breakdown.
 
 **Before this succeeds:** `CLOUDFLARE_API_TOKEN` must be set in
 `secrets.yaml` and exported from `ansible/.envrc` — the `traefik` role's
 preflight check fails loudly and early if it's missing.
 
-Once done, add a DNS record for `otel-demo.homelab.bcochofel.com` pointed
-at `k3s-srv1` (`192.168.68.25`) in the **core repo's**
+Once done, add DNS records for `otel-demo.homelab.bcochofel.com`,
+`argocd.homelab.bcochofel.com`, and `hubble.homelab.bcochofel.com`,
+all pointed at `k3s-srv1` (`192.168.68.40`), in the **core repo's**
 `ansible/inventory/group_vars/dns.yml` — manual, cross-repo, see
 [`docs/ARGOCD.md`](docs/ARGOCD.md) — then see [Verify](#verify) below.
 
@@ -216,14 +218,16 @@ on its own once ArgoCD is up. Adding a new app is a new file under
 
 | VM | vCPU | RAM | Disk | Role | IP |
 | --- | --- | --- | --- | --- | --- |
-| k3s-srv1 | 2 | 4 GB | 40 G | K3s server (control-plane) | 192.168.68.25 |
-| k3s-agent1 | 2 | 4 GB | 40 G | K3s agent (worker) | 192.168.68.26 |
-| k3s-agent2 | 2 | 4 GB | 40 G | K3s agent (worker) | 192.168.68.27 |
+| k3s-srv1 | 4 | 8 GB | 50 GB | K3s server (control-plane) | 192.168.68.40 |
+| k3s-agent1 | 2 | 4 GB | 50 GB | K3s agent (worker) | 192.168.68.41 |
+| k3s-agent2 | 2 | 4 GB | 50 GB | K3s agent (worker) | 192.168.68.42 |
 
-Single-server topology, no HA embedded-etcd — sized against `pve1`'s live
-capacity at refactor time (16 vCPU/62.5 GB total, ~13 vCPU/~35 GB already
-allocated to the core/elastic repos' VMs). See `CLAUDE.md` for the full
-math and what growing to a 3-server HA control plane would change.
+Single-server topology, no HA embedded-etcd — originally sized 2 vCPU/4GB
+per node against `pve1`'s live capacity at refactor time (16 vCPU/62.5 GB
+total, ~13 vCPU/~35 GB already allocated to the core/elastic repos' VMs);
+`k3s-srv1` was later bumped to 4 vCPU/8GB after a live resource-exhaustion
+incident. See `CLAUDE.md` for the full math, the incident, and what
+growing to a 3-server HA control plane would change.
 
 ## Verify
 
@@ -233,19 +237,23 @@ math and what growing to a 3-server HA control plane would change.
   see `docs/ANSIBLE.md`'s healthcheck notes).
 - `kubectl -n otel-demo get pods` — everything `Running`, nothing stuck
   `Pending`.
-- ArgoCD's own WebUI — `kubectl -n argocd port-forward svc/argocd-server
-  8080:443`, then browse `https://localhost:8080` (default admin password
-  in the `argocd-initial-admin-secret` Secret in the `argocd` namespace
-  until it's rotated). No Ingress hostname is set up for it yet — see
-  [`docs/ARGOCD.md`](docs/ARGOCD.md).
-- `https://otel-demo.homelab.bcochofel.com` — the demo's storefront UI,
-  served with a real Let's Encrypt cert issued by Traefik itself (once the
-  DNS record above is in place and the cert resolver has had a moment to
-  issue it). This also confirms Traefik's own ingress and DNS-01 cert
-  resolver are working — Traefik's dashboard itself isn't exposed
-  (`--api.dashboard`/`--api.insecure` aren't set in the `traefik` role's
-  `HelmChartConfig`), so this is the only in-cluster WebUI reachable
-  without a `port-forward`.
+- `https://argocd.homelab.bcochofel.com` — ArgoCD's own WebUI, fronted by
+  Traefik (default admin password in the `argocd-initial-admin-secret`
+  Secret in the `argocd` namespace until it's rotated). `kubectl -n argocd
+  port-forward svc/argocd-server 8080:443` still works as a fallback if
+  the Ingress/DNS isn't reachable. See [`docs/ARGOCD.md`](docs/ARGOCD.md).
+- `https://otel-demo.homelab.bcochofel.com` — the demo's storefront UI.
+- `https://hubble.homelab.bcochofel.com` — Hubble UI (Cilium's flow/
+  service-map visualizer). No authentication of its own — see
+  `CLAUDE.md`'s Cilium decision entry for why that's an accepted tradeoff
+  here.
+
+All three are served with a real Let's Encrypt cert issued by Traefik
+itself (once the DNS records above are in place and the cert resolver has
+had a moment to issue them) — confirms Traefik's own ingress and DNS-01
+cert resolver are working. Traefik's own dashboard isn't exposed
+(`--api.dashboard`/`--api.insecure` aren't set in the `traefik` role's
+`HelmChartConfig`).
 
 ## Design decisions
 
