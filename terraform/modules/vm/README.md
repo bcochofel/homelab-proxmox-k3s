@@ -37,6 +37,7 @@ No modules.
 | <a name="input_datastore_id"></a> [datastore\_id](#input\_datastore\_id) | Proxmox datastore for disk + cloud-init | `string` | `"local-lvm"` | no |
 | <a name="input_description"></a> [description](#input\_description) | VM description / notes | `string` | `"Managed by Terraform (vm module)"` | no |
 | <a name="input_disk"></a> [disk](#input\_disk) | Disk size in GB (>= template disk) | `number` | `60` | no |
+| <a name="input_extra_disk"></a> [extra\_disk](#input\_extra\_disk) | Optional second, blank disk size in GB, attached at scsi1. Leave null (default) for a single-disk VM. | `number` | `null` | no |
 | <a name="input_gateway"></a> [gateway](#input\_gateway) | Default gateway | `string` | n/a | yes |
 | <a name="input_ip_cidr"></a> [ip\_cidr](#input\_ip\_cidr) | Static IPv4 in CIDR form, e.g. 192.168.68.30/22 | `string` | n/a | yes |
 | <a name="input_memory"></a> [memory](#input\_memory) | Memory in MB | `number` | `8192` | no |

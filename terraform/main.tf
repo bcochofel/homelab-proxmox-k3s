@@ -27,9 +27,10 @@ module "k3s_server" {
   target_node   = var.target_node
   template_vmid = local.template_vmid
 
-  cores  = each.value.cores
-  memory = each.value.memory
-  disk   = each.value.disk
+  cores      = each.value.cores
+  memory     = each.value.memory
+  disk       = each.value.disk
+  extra_disk = each.value.extra_disk
 
   ip_cidr        = each.value.ip_cidr
   gateway        = var.gateway
@@ -54,9 +55,10 @@ module "k3s_agent" {
   target_node   = var.target_node
   template_vmid = local.template_vmid
 
-  cores  = each.value.cores
-  memory = each.value.memory
-  disk   = each.value.disk
+  cores      = each.value.cores
+  memory     = each.value.memory
+  disk       = each.value.disk
+  extra_disk = each.value.extra_disk
 
   ip_cidr        = each.value.ip_cidr
   gateway        = var.gateway

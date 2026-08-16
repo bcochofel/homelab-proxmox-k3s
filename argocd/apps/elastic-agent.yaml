@@ -11,10 +11,19 @@
 # before this app ever syncs. Same split as Traefik's Cloudflare token vs.
 # otel-demo's chart: secrets are Ansible's job, GitOps apps consume them.
 #
-# agent.presets (perNode DaemonSet + clusterWide leader-elected Deployment)
-# are left at the chart's own defaults — both already ship enabled out of
-# the box, and preset resource requests/limits are left untuned until
-# actual usage shows they need trimming (see TODO.md).
+# agent.presets: the chart's elasticagent.init.fleet helper disables every
+# preset except whichever one agent.fleet.preset names as soon as
+# agent.fleet.enabled=true — Fleet-managed mode only supports one preset
+# per Helm release, unlike standalone mode where perNode+clusterWide both
+# ship by default. This release covers perNode (the default); a second
+# release with agent.fleet.preset: clusterWide is needed for cluster-wide
+# state metrics — see TODO.md, not yet added.
+#
+# kube-state-metrics.enabled: false — the chart bundles kube-state-metrics
+# as an enabled-by-default optional dependency, which collided with the
+# separate kube-state-metrics.yaml app managing the exact same objects
+# (both apps' selfHeal kept fighting over ownership). Disabled here so
+# only kube-state-metrics.yaml owns them.
 # ============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -31,6 +40,8 @@ spec:
     targetRevision: "9.4.2"
     helm:
       valuesObject:
+        kube-state-metrics:
+          enabled: false
         agent:
           fleet:
             enabled: true

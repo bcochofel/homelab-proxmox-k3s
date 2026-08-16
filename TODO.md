@@ -220,6 +220,41 @@ needed to prove it actually works end to end, plus close the one real gap
       `modules/vm/main.tf`, carried over from core/elastic and currently
       skip-listed in `checkov.yaml` — same fix needed in all three repos
       if it's ever addressed (`bios = "ovmf"` + an `efi_disk` block).
+- [ ] The Packer template's own LVM layout (`packer/ubuntu-26.04/http/
+      user-data.yml.tpl`'s `storage:` section) needs the same fix
+      eventually: it gives `/` only 25GB of the 50GB template disk,
+      splitting the rest into `home`/`tmp`/`opt` this workload barely
+      touches — root filled up (`k3s-srv1` hit kubelet `DiskPressure`,
+      `agent1`/`agent2` trending the same way) well before the disk
+      itself did. Worked around live for now with a second Terraform-
+      provisioned disk per node (`extra_disk` on `k3s_server_nodes`/
+      `k3s_agent_nodes`, added to each VM's volume group and root
+      extended onto it) rather than reshuffling the existing LVs on
+      running nodes. The elastic repo hit and fixed the same
+      class of problem on its own template — worth checking how it
+      solved it there before reinventing the layout here.
+- [ ] The `extra_disk` fix above only provisions the second disk via
+      Terraform — adding it to each node's volume group and extending
+      `root` onto it (`pvcreate`/`vgextend`/`lvextend -l +100%FREE`/
+      `resize2fs`, done live over SSH on all three nodes on 2026-08-16)
+      was a **manual, one-off step, not automated anywhere**. If these
+      VMs are ever destroyed/recreated again (like this session's earlier
+      `terraform destroy`/`apply` for the Cilium switch), the new disk
+      comes back but sits unpartitioned/unused until this is redone by
+      hand. Either automate it (a new early `k3s_common`-stage Ansible
+      task, idempotent — skip if the VG already has the extra PV) or
+      make it moot by fixing the Packer template's LVM layout instead
+      (see the item above) so a fresh template doesn't need the extra
+      disk at all.
+- [ ] The `elastic-agent` chart's Fleet-managed mode only runs **one**
+      preset per Helm release (`elasticagent.init.fleet` disables every
+      preset except whichever `agent.fleet.preset` names, default
+      `perNode`) — unlike standalone mode, `perNode`+`clusterWide` don't
+      both ship from a single release once `agent.fleet.enabled: true`.
+      `argocd/apps/elastic-agent.yaml` currently only covers `perNode`
+      (per-node logs/metrics); cluster-wide state metrics need a second
+      Application (same chart, `agent.fleet.preset: clusterWide`) —
+      not yet added.
 
 See `CLAUDE.md` for the detailed technical notes and decisions behind each
 of these (agent-facing context) — this file is just the status list.

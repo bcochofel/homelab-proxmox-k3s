@@ -40,6 +40,21 @@ resource "proxmox_virtual_environment_vm" "this" {
     ssd          = true
   }
 
+  # Optional second disk, blank (not cloned from the template) — for
+  # workloads that outgrow the template's own LVM layout without needing
+  # a Packer rebuild. Ansible/manual steps add it to the VM's volume
+  # group and extend the root LV onto it.
+  dynamic "disk" {
+    for_each = var.extra_disk != null ? [var.extra_disk] : []
+    content {
+      interface    = "scsi1"
+      datastore_id = var.datastore_id
+      size         = disk.value
+      discard      = "on"
+      ssd          = true
+    }
+  }
+
   network_device {
     bridge = var.network_bridge
     model  = "virtio"
