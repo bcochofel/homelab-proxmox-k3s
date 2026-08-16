@@ -2,6 +2,20 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+# [2.2.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.1.1...2.2.0) (2026-08-16)
+
+
+### Bug Fixes
+
+* **otel-demo,packer:** root-cause IPv6 crash loops via kernel flag, not app patches ([e794ce2](https://github.com/bcochofel/homelab-proxmox-k3s/commit/e794ce2df774c705d155388ee781b334828e77e9)), closes [16/#17](https://github.com/bcochofel/homelab-proxmox-k3s/issues/17)
+* **release:** switch changelog preset from conventionalcommits to angular ([f4b9799](https://github.com/bcochofel/homelab-proxmox-k3s/commit/f4b97991dacce364674b23bc2cd5b0341f4d4730))
+* **traefik:** point ACME DNS-01 zone lookup at public resolvers ([c0c3220](https://github.com/bcochofel/homelab-proxmox-k3s/commit/c0c3220a2c58618fd3c52496e791af8c113e4d18))
+
+
+### Features
+
+* **ansible:** switch K3s CNI from Flannel/kube-proxy to Cilium ([67e99ae](https://github.com/bcochofel/homelab-proxmox-k3s/commit/67e99ae1c1a4790eba4e713543561c8d07b68d44))
+
 ## [2.1.1](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.1.0...2.1.1) (2026-08-13)
 
 ### Bug Fixes
