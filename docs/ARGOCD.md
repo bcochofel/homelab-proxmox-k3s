@@ -111,6 +111,18 @@ for Ingresses in this cluster directly.
   wiring `CF_DNS_API_TOKEN` from the `kube-system` Secret the same role
   creates, and `persistence.enabled: true` so `acme.json` (the issued
   certs) survives a pod restart.
+- **DNS-01 zone-cut discovery needs public resolvers, not this cluster's
+  own.** CoreDNS is authoritative for `homelab.bcochofel.com` (the
+  `nameserver` these VMs themselves use, `terraform/variables.tf`), so
+  without `--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=
+  1.1.1.1:53,8.8.8.8:53` in the `HelmChartConfig`'s `additionalArguments`,
+  Traefik's ACME zone-cut walk gets a real (internal) SOA answer for
+  `homelab.bcochofel.com` and never continues up to the actual Cloudflare
+  zone, `bcochofel.com` — fails with `"zone could not be found"`. Same
+  root cause and same fix as the core repo's Caddy (its Caddyfile has an
+  identical `resolvers` line, hit there 2026-08-15); hit here 2026-08-16
+  after `terraform destroy`/`apply` wiped `k3s-srv1`'s local-path-backed
+  `acme.json` and forced every hostname to re-request from scratch.
 - **Unverified, flag before trusting blindly:** the exact
   `additionalArguments`/`env`/`persistence` values keys assume the
   Traefik Helm chart shape K3s v1.36.3+k3s1 vendors follows the
@@ -120,9 +132,10 @@ for Ingresses in this cluster directly.
   traefik -o yaml` (or check the chart bundled in
   `/var/lib/rancher/k3s/server/static/charts/` on the server node) before
   assuming a failed apply is a typo elsewhere. Tracked in `TODO.md`.
-- **DNS is a manual, cross-repo step.** `otel-demo.homelab.bcochofel.com`
-  (and any future Traefik-fronted hostname) needs a DNS record pointed at
-  a K3s node IP — `k3s-srv1` (`192.168.68.25`) is the documented default,
+- **DNS is a manual, cross-repo step.** `otel-demo.homelab.bcochofel.com`,
+  `argocd.homelab.bcochofel.com`, `hubble.homelab.bcochofel.com` (and any
+  future Traefik-fronted hostname) each need a DNS record pointed at
+  a K3s node IP — `k3s-srv1` (`192.168.68.40`) is the documented default,
   since K3s' bundled ServiceLB (Klipper) exposes the Traefik `LoadBalancer`
   Service's ports on every schedulable node's own IP, not a single
   cluster-wide virtual IP. Add the entry to the **core repo's**

@@ -11,6 +11,15 @@ spec:
     additionalArguments:
       - "--certificatesresolvers.cloudflare.acme.dnschallenge=true"
       - "--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare"
+      # CoreDNS is authoritative for homelab.bcochofel.com (this cluster's
+      # own nameserver, per terraform/variables.tf's `nameserver`), so
+      # without this, Traefik's ACME zone-cut discovery gets a real SOA
+      # answer from our own CoreDNS and never walks up to the actual
+      # Cloudflare zone (bcochofel.com) — fails with "zone could not be
+      # found". Same root cause and same fix as the core repo's Caddy
+      # (see its Caddyfile / CLAUDE.md), hit there 2026-08-15 and here
+      # 2026-08-16.
+      - "--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53"
       - "--certificatesresolvers.cloudflare.acme.email={{ traefik_acme_email }}"
       - "--certificatesresolvers.cloudflare.acme.storage=/data/acme.json"
     env:
