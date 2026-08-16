@@ -2,6 +2,14 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+## [2.3.1](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.3.0...2.3.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **argocd:** stop elastic-agent/kube-state-metrics resource ownership fight ([017d13c](https://github.com/bcochofel/homelab-proxmox-k3s/commit/017d13c84639822146b7ab5c46327b713d004e9a))
+* **terraform:** add second disk per K3s node, extend root LV onto it ([b593bd5](https://github.com/bcochofel/homelab-proxmox-k3s/commit/b593bd5f35356b8c843a0e3d6edfe9130babf669))
+
 # [2.3.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.2.0...2.3.0) (2026-08-16)
 
 
