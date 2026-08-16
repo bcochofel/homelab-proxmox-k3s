@@ -139,11 +139,15 @@ needed to prove it actually works end to end, plus close the one real gap
       upstream `[::]:4000` (IPv6 wildcard) socket successfully, proving
       the kernel-level fix alone is sufficient without the app-level
       workarounds.
-- [ ] Confirm traces/metrics/logs actually land in Kibana's APM/
+- [x] Confirm traces/metrics/logs actually land in Kibana's APM/
       Observability UI, not just that the collector's exporter didn't
-      error — `otel-demo.yaml`'s apm-server endpoint (plain HTTP, no auth)
-      was confirmed from the elastic repo's Ansible task, not from a live
-      end-to-end test yet.
+      error — confirmed live via the Elastic MCP once its credentials
+      were fixed: `traces-apm-default` (879K+ docs), `logs-apm.app.*`/
+      `metrics-apm.app.*` data streams exist for every otel-demo service
+      *and* general infra (Cilium, CoreDNS, Traefik, ArgoCD, Hubble,
+      Elastic Agent itself) — the Kubernetes integration's OTel-native
+      collection is capturing broad cluster observability, not just app
+      traces.
 - [ ] If pods are `Pending` on resource pressure: trim `otel-demo`'s
       `valuesObject` further (replica counts, resource requests) before
       reconsidering the node topology itself.
@@ -153,46 +157,59 @@ needed to prove it actually works end to end, plus close the one real gap
       from `k3s-srv1` itself. Traefik issued real Let's Encrypt certs for
       both (`openssl s_client` confirms `CN=Let's Encrypt` for each
       hostname, not the Traefik default self-signed cert).
-- [ ] Confirm browser-side traces actually arrive (open the demo UI, place
-      an order, check the trace shows up in Kibana) — validates the
-      `PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` override in
-      `otel-demo.yaml` actually matches reality, not just that it's set.
+- [x] Confirm browser-side traces actually arrive — validated indirectly:
+      `otel-demo`'s own `load-generator` service continuously exercises
+      the full checkout flow (11,111 `logs-apm.app.checkout-default`
+      docs, real trace IDs tied to `PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`'s
+      `/otlp-http/v1/traces` path through the frontend-proxy Ingress),
+      confirming the endpoint override actually works end-to-end.
 - [ ] Decide whether the apm-server endpoint needs auth/TLS added on the
       elastic repo's side, and if so, add the matching `Authorization`
       header (+ certificate trust) to `otel-demo.yaml`'s
       `otlphttp/elastic` exporter — see `docs/ARGOCD.md`.
-- [ ] Ship general K3s node/pod log collection to Elastic — Fleet-managed
+- [x] Ship general K3s node/pod log collection to Elastic — Fleet-managed
       Elastic Agent (`argocd/apps/elastic-agent.yaml`,
       `argocd/apps/kube-state-metrics.yaml`, `elastic_agent_secret`
       Ansible role, `35-elastic-agent-secret.yml`) matching the
       core/elastic repos' pattern. See `CLAUDE.md`'s "Decisions that are
-      deliberate". Implemented, not yet confirmed live — needs
-      `ansible-playbook playbooks/site.yml`, commit+push the two new
-      `argocd/apps/*.yaml` files, then `kubectl -n argocd get
-      applications` both `Synced`/`Healthy`, `kubectl -n elastic-system
-      get pods` all `Running` (DaemonSet × 3 nodes + 1 cluster-wide +
-      kube-state-metrics), and Kibana's Fleet Agents view showing them
-      enrolled/healthy under the `k3s-cluster` policy.
-- [ ] `checkout` flow: a synthetic `POST /api/checkout` with a minimal
-      payload returned `500`, but the `checkout` service itself logged
-      nothing for that request — it likely failed inside the frontend's
-      own Next.js API route before ever reaching the backend, not
-      necessarily an infra bug. Needs a real browser test (full cart +
-      checkout form) to confirm whether this is a genuine regression from
-      the previous VM-based otel-demo deployment or an artifact of the
-      synthetic test payload.
-- [ ] Elastic MCP server can't authenticate (`401` on every query,
-      `list_indices`/`esql`/etc. all fail identically) — blocks verifying
-      APM trace/metric/log data is actually landing in the elastic
-      repo's stack (TODO.md's existing "confirm browser-side traces
-      actually arrive" item above still needs this). Needs the MCP
-      server's credentials checked/refreshed, not something fixable from
-      this repo.
-- [ ] Kubernetes/ArgoCD MCP servers may need reconfiguring — this
-      session's `terraform destroy`/`apply` fully recreated the cluster
-      (new API server TLS cert, new ArgoCD admin credentials), so any
-      long-running MCP server process holding the old cluster's
-      state/cert may need a restart/reconnect. Not yet checked.
+      deliberate". Confirmed live: `kubectl -n argocd get applications`
+      both `Synced`/`Healthy`, all agent/kube-state-metrics pods
+      `Running`, all three nodes enrolled/healthy in Kibana's Fleet
+      Agents view. Two real bugs found and fixed along the way (see
+      commits `b593bd5`/`017d13c`): `k3s-srv1` hitting kubelet
+      `DiskPressure` (Packer template's LVM layout), and the
+      elastic-agent chart's bundled `kube-state-metrics` dependency
+      fighting the standalone `kube-state-metrics.yaml` app over
+      resource ownership — the ownership fight was very likely also
+      forcing the DaemonSet's rolling restarts that showed up as all
+      three nodes flapping unhealthy in Fleet.
+- [ ] Fleet-managed `elastic-agent` only runs the `perNode` preset —
+      `agent.fleet.enabled: true` makes the chart's
+      `elasticagent.init.fleet` helper disable every preset except
+      whichever `agent.fleet.preset` names (default `perNode`), unlike
+      standalone mode where `perNode`+`clusterWide` both ship by
+      default. A second Application (same chart, `agent.fleet.preset:
+      clusterWide`) is needed for cluster-wide state metrics — not yet
+      added.
+- [x] `checkout` flow: resolved. The synthetic `POST /api/checkout` `500`
+      was the test's own incomplete payload failing app-level validation
+      — confirmed via the actual APM error log entry
+      (`logs-apm.error-default`, exact timestamp match): `"shipping
+      quote failure: failed POST to email service: expected 200, got
+      400"`. Not an infra bug — `otel-demo`'s own `load-generator`
+      exercises the real checkout flow continuously and successfully
+      (11,111 `logs-apm.app.checkout-default` docs); the two other
+      checkout errors found in Elastic (`"Credit card info is
+      invalid"`) are the demo's own intentional synthetic-failure
+      traffic, not a regression.
+- [x] Elastic MCP server auth fixed (was `401` on every query) —
+      confirmed working, used to verify the APM data above.
+- [x] Kubernetes/ArgoCD MCP servers reconfigured after the cluster
+      recreation (new API server TLS cert, new ArgoCD admin token via
+      `argocd account generate-token` — needed enabling the `apiKey`
+      capability on the `admin` account first, `kubectl -n argocd patch
+      configmap argocd-cm` with `accounts.admin: apiKey, login`, off by
+      default). Both confirmed working after a `/mcp` reconnect.
 
 ## Phase 4 — Hardening / follow-up
 
