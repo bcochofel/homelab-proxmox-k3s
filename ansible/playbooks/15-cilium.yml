@@ -1,0 +1,6 @@
+---
+- name: Cilium CNI (first K3s server only)
+  hosts: k3s_server[0]
+  become: true
+  roles:
+    - cilium

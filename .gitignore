@@ -57,6 +57,11 @@ secrets/
 .env
 .env.local
 
+# Elastic CA cert copied in from the homelab-proxmox-elastic repo, used to
+# validate Fleet Server's TLS cert when enrolling this cluster's Elastic
+# Agents — never committed, same convention as that repo's ansible/.certs/.
+ansible/.certs/
+
 # Ansible
 *.retry
 .ansible/

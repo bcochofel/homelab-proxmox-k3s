@@ -30,3 +30,12 @@ traefik_cloudflare_secret_name: traefik-cloudflare-api-token
 # Not a secret — the ACME account contact, same pattern as core's
 # letsencrypt_email.
 traefik_acme_email: "bruno.cochofel@gmail.com"
+
+# Cilium CNI — replaces K3s' bundled Flannel + kube-proxy (see CLAUDE.md's
+# "Decisions that are deliberate"). Chart version drives `cilium install
+# --version`; cilium_cli_version pins the installer binary itself, which
+# is separately versioned from the chart it installs.
+# Verified current stable via `gh api repos/cilium/cilium/releases/latest`
+# and `gh api repos/cilium/cilium-cli/releases/latest` (2026-08-16).
+cilium_version: "1.20.0"
+cilium_cli_version: "v0.19.7"

@@ -42,22 +42,32 @@ variable "vm_template" {
 variable "k3s_server_nodes" {
   type = list(object({
     name    = string
-    vmid    = number
-    ip_cidr = string # e.g. 192.168.68.25/22
+    vmid    = optional(number) # omitted -> Proxmox auto-assigns the next available ID
+    ip_cidr = string           # e.g. 192.168.68.40/22
     cores   = number
     memory  = number # MB
     disk    = number # GB
   }))
   description = "K3s server (control-plane) node definitions"
   default = [
-    { name = "k3s-srv1", vmid = 9550, ip_cidr = "192.168.68.25/22", cores = 2, memory = 4096, disk = 50 },
+    # 4 vCPU / 8GB, not the original 2/4 — the control-plane node also
+    # carries Cilium's operator/envoy/hubble-relay/hubble-ui on top of
+    # K3s server + Traefik + ArgoCD, and while agents were briefly stuck
+    # off the cluster the full otel-demo chart landed on this node alone
+    # and pegged it (load average ~25 on 2 vCPU, memory nearly exhausted).
+    # First bumped to 4/6 — confirmed live afterward that CPU settled to
+    # ~30%, but memory still sat around ~76% of the 6GB (4.6GB used) once
+    # otel-demo redistributed, so bumped again to 8GB for real headroom.
+    # pve1 has ample spare CPU (~2 of 16 physical cores actually in use
+    # cluster-wide when this was first sized) and enough unallocated RAM.
+    { name = "k3s-srv1", ip_cidr = "192.168.68.40/22", cores = 4, memory = 8192, disk = 50 },
   ]
 }
 
 variable "k3s_agent_nodes" {
   type = list(object({
     name    = string
-    vmid    = number
+    vmid    = optional(number) # omitted -> Proxmox auto-assigns the next available ID
     ip_cidr = string
     cores   = number
     memory  = number
@@ -65,8 +75,8 @@ variable "k3s_agent_nodes" {
   }))
   description = "K3s agent (worker) node definitions"
   default = [
-    { name = "k3s-agent1", vmid = 9551, ip_cidr = "192.168.68.26/22", cores = 2, memory = 4096, disk = 50 },
-    { name = "k3s-agent2", vmid = 9552, ip_cidr = "192.168.68.27/22", cores = 2, memory = 4096, disk = 50 },
+    { name = "k3s-agent1", ip_cidr = "192.168.68.41/22", cores = 2, memory = 4096, disk = 50 },
+    { name = "k3s-agent2", ip_cidr = "192.168.68.42/22", cores = 2, memory = 4096, disk = 50 },
   ]
 }
 
@@ -87,8 +97,8 @@ variable "network_bridge" {
 
 variable "nameserver" {
   type        = list(string)
-  description = "DNS nameservers for cloud-init, in order (CoreDNS + Pihole — both, for redundancy)"
-  default     = ["192.168.68.42", "192.168.68.43"]
+  description = "DNS nameservers for cloud-init, in order — CoreDNS primary (192.168.68.2) then CoreDNS secondary (192.168.68.3, AXFR-synced, runs on the user's QNAP NAS outside this repo), for redundancy. Interim: once Pihole primary (on the core repo's dns VM) and Pihole secondary (Raspberry Pi 3, 192.168.68.6) are configured to forward to CoreDNS and do ad-blocking only, this moves to the Pihole pair instead"
+  default     = ["192.168.68.2", "192.168.68.3"]
 }
 
 variable "searchdomain" {

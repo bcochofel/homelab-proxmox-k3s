@@ -5,6 +5,8 @@
   import_playbook: 00-bootstrap.yml
 - name: K3s server
   import_playbook: 10-k3s-server.yml
+- name: Cilium CNI
+  import_playbook: 15-cilium.yml
 - name: K3s agents
   import_playbook: 20-k3s-agent.yml
 - name: Traefik

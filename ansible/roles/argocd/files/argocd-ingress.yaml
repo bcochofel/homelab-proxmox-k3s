@@ -7,7 +7,7 @@
 # internally rather than double-wrapping TLS.
 #
 # Requires a DNS record for argocd.homelab.bcochofel.com pointed at a K3s
-# node IP (e.g. k3s-srv1, 192.168.68.25) — a manual step in the core repo's
+# node IP (e.g. k3s-srv1, 192.168.68.40) — a manual step in the core repo's
 # `dns_hosts`, not automated here since it's a different repo. See
 # docs/ARGOCD.md.
 # ============================================================================

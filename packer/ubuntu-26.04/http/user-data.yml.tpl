@@ -14,7 +14,13 @@ autoinstall:
     ethernets:
       ens18: # Usual name for Proxmox using virtio driver
         dhcp4: true
-        dhcp6: false  # Disable IPv6 DHCP
+        # No DHCPv6 — the homelab LAN has no IPv6 uplink to hand out
+        # addresses from — but the kernel's IPv6 stack itself stays
+        # enabled (see late-commands below): apps that bind a dual-stack
+        # `[::]` wildcard socket (nginx, several opentelemetry-demo
+        # components) need that stack present even with no routable
+        # address, or bind() fails outright.
+        dhcp6: false
 
   # Storage
   storage:
@@ -188,10 +194,6 @@ autoinstall:
 
   # Late commands
   late-commands:
-    # Disable IPv6
-    - curtin in-target --target=/target -- sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash ipv6.disable=1"/' /etc/default/grub
-    - curtin in-target --target=/target -- update-grub
-
     # Fix fstab fsck pass numbers (only root should be 0 1, others should be 0 2)
     - curtin in-target --target=/target -- sed -i 's|\(/home.*\) 0 1|\1 0 2|' /etc/fstab
     - curtin in-target --target=/target -- sed -i 's|\(/tmp.*\) 0 1|\1 0 2|' /etc/fstab
@@ -296,8 +298,6 @@ autoinstall:
           KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256
           # Logging
           LogLevel VERBOSE
-          # Network
-          AddressFamily inet  # IPv4 only if you disabled IPv6
           # Banner (optional)
           Banner /etc/ssh/banner
 
