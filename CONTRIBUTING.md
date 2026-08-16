@@ -82,8 +82,11 @@ argocd/apps/<file>.yaml` by hand if you're unsure a change is well-formed.
 
 This matches the `branches` config in [`.releaserc.js`](.releaserc.js):
 commits merged to `main` produce a real release; commits on `release/*`
-produce an `rc` prerelease; commits on `feature/*`/`fix/*` produce a
-prerelease tagged with the branch name.
+produce an `rc` prerelease; commits on `feature/*` produce a `feature`
+prerelease and commits on `fix/*` produce a `fix` prerelease (fixed
+identifiers, not the branch name itself — semver prerelease identifiers
+can't contain `/`, so a literal branch name like `feature/foo` isn't valid
+there) — so you can see what a change would version as before it merges.
 
 ## Commit messages (Conventional Commits)
 
