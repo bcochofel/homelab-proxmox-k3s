@@ -1,2 +1,2 @@
-instance-id: ubuntu-template
-local-hostname: ubuntu-template
+instance-id: ubuntu-k3s
+local-hostname: ubuntu-k3s
