@@ -1,0 +1,41 @@
+# ============================================================================
+# Exposes Hubble UI (Cilium's flow/service-map visualizer) via K3s' bundled
+# Traefik (Cloudflare DNS-01 cert resolver, same as argocd-server's and
+# otel-demo's Ingresses) instead of only `cilium hubble ui`/`kubectl
+# port-forward`. hubble-ui serves plain HTTP itself (no TLS toggle needed,
+# unlike argocd-server) — Traefik just terminates TLS at the edge as usual.
+#
+# Hubble UI has no authentication of its own: anyone who can reach this
+# hostname sees live cluster flow data. Same exposure model as this repo's
+# argocd./otel-demo. hostnames — deliberate, matches this repo's "learn by
+# running the real thing" approach (see CLAUDE.md).
+#
+# Requires a DNS record for hubble.homelab.bcochofel.com pointed at a K3s
+# node IP (e.g. k3s-srv1, 192.168.68.40) — a manual step in the core repo's
+# `dns_hosts`, not automated here since it's a different repo. See
+# docs/ARGOCD.md's DNS section for the same pattern.
+# ============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hubble-ui
+  namespace: kube-system
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: cloudflare
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hubble.homelab.bcochofel.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hubble-ui
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - hubble.homelab.bcochofel.com

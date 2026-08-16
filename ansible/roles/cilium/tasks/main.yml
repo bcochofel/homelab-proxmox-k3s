@@ -1,0 +1,88 @@
+---
+# tasks file for cilium — installs Cilium as this cluster's CNI (Flannel
+# and kube-proxy are disabled in k3s_server's INSTALL_K3S_EXEC), plus
+# Hubble (relay + UI) for flow visibility. See CLAUDE.md's "Decisions that
+# are deliberate" for why.
+#
+# Uses Cilium's own official `cilium` CLI, not K3s' HelmChartConfig/
+# HelmChart mechanism (the pattern the `traefik` role uses): that
+# mechanism installs charts via an in-cluster Job pod, which itself needs
+# a working CNI to get scheduled — a chicken-and-egg problem once Flannel
+# is gone. `cilium install` talks to the API server directly (no
+# in-cluster Job) and Cilium's own DaemonSet pods tolerate the
+# NotReady/uninitialized node taints, so kubelet can start them with no
+# CNI present yet — that's how Cilium bootstraps itself into existence.
+# Same "official installer, not a generic Ansible collection" preference
+# this repo already applies to K3s (get.k3s.io) and ArgoCD (install.yaml).
+
+- name: Download and install the cilium CLI (pinned version)
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -sfL https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/cilium-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+  args:
+    creates: /usr/local/bin/cilium
+  changed_when: true
+
+# The `cilium` CLI does not auto-detect K3s' kubeconfig the way
+# `kubectl`/`k3s kubectl` do (K3s symlinks/wraps those specifically) — every
+# invocation below needs KUBECONFIG set explicitly.
+- name: Check whether Cilium is already installed
+  ansible.builtin.command: cilium status --wait=false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: _cilium_status
+  changed_when: false
+  failed_when: false
+
+- name: Install Cilium (CNI, kube-proxy replacement, Hubble relay + UI)
+  # k8sServiceHost/k8sServicePort point Cilium at the API server directly —
+  # normally kube-proxy's ClusterIP routing gets it there, but kube-proxy
+  # is disabled. operator.replicas=1 avoids a permanently Pending second
+  # operator replica: the chart's default (2, with anti-affinity) assumes
+  # more than one schedulable control-plane-adjacent node, and this is a
+  # single-server cluster (see CLAUDE.md's topology-sizing note).
+  ansible.builtin.command: >
+    cilium install
+    --version {{ cilium_version }}
+    --set kubeProxyReplacement=true
+    --set k8sServiceHost={{ ansible_host }}
+    --set k8sServicePort=6443
+    --set operator.replicas=1
+    --set hubble.relay.enabled=true
+    --set hubble.ui.enabled=true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: _cilium_status.rc != 0
+  changed_when: true
+
+- name: Wait for Cilium to report ready
+  ansible.builtin.command: cilium status --wait --wait-duration=180s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+# Moved here from k3s_server: the node can't go Ready until a CNI exists,
+# which (with Flannel disabled) is now Cilium.
+- name: Wait for the node to report Ready
+  ansible.builtin.command: k3s kubectl get node {{ inventory_hostname }} -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}"
+  register: _cilium_node_ready
+  until: _cilium_node_ready.stdout == "True"
+  retries: 30
+  delay: 10
+  changed_when: false
+
+# ----------------------------------------------------------------------------
+# Expose Hubble UI via Traefik instead of only `cilium hubble ui`/`kubectl
+# port-forward`. hubble-ui serves plain HTTP already, no insecure-mode
+# dance needed (unlike argocd-server).
+# ----------------------------------------------------------------------------
+- name: Copy the Hubble UI Ingress manifest to the server
+  ansible.builtin.copy:
+    src: hubble-ingress.yaml
+    dest: /tmp/hubble-ingress.yaml
+    mode: "0644"
+
+- name: Apply the Hubble UI Ingress (Traefik, Cloudflare DNS-01)
+  ansible.builtin.command: kubectl apply -f /tmp/hubble-ingress.yaml
+  register: _hubble_ingress
+  changed_when: "'created' in _hubble_ingress.stdout or 'configured' in _hubble_ingress.stdout"
