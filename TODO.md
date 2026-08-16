@@ -125,21 +125,20 @@ needed to prove it actually works end to end, plus close the one real gap
       `ip: {0,0,0,0,0,0,0,0}` in the compiled release's `runtime.exs`,
       not env-driven) fixed the same way — mounting a replacement file at
       the exact path its boot script re-evaluates from (PR #17).
-- [ ] Superseding the PR #16/#17 app-level patches above: root-caused the
+- [x] Superseded the PR #16/#17 app-level patches above: root-caused the
       crash loops to the Packer template's `ipv6.disable=1` GRUB flag
-      (kernel IPv6 stack fully off, not just unaddressed), which will
-      keep hitting new components as the chart evolves. The template's
+      (kernel IPv6 stack fully off, not just unaddressed). The template's
       `late-commands` no longer set that flag (kernel stays IPv6-capable,
       `dhcp6` stays `false` — no routable v6 address needed, apps just
       need `bind()` on `[::]` to succeed), and the `image-provider`/
-      `telemetry-docs`/`flagd` overrides have been reverted out of
-      `otel-demo.yaml`. Neither takes effect until the pipeline is rerun
-      **in order**: `packer build` the template, replace/recreate the
-      three VMs in Terraform, rerun `ansible-playbook playbooks/site.yml`
-      — only then commit/push the `otel-demo.yaml` revert, since
-      ArgoCD's `automated`+`selfHeal` sync policy means pushing it any
-      earlier reintroduces the crash loops on the still-IPv6-disabled
-      running cluster.
+      `telemetry-docs`/`flagd` overrides were reverted out of
+      `otel-demo.yaml` (PR #19). Confirmed live after merge: ArgoCD synced
+      fresh `image-provider`/`telemetry-docs`/`flagd` pods with no
+      overrides, all `Running` with 0 restarts — `image-provider` serving
+      real `200`s, `flagd-ui`'s log shows it bound the *unpatched*
+      upstream `[::]:4000` (IPv6 wildcard) socket successfully, proving
+      the kernel-level fix alone is sufficient without the app-level
+      workarounds.
 - [ ] Confirm traces/metrics/logs actually land in Kibana's APM/
       Observability UI, not just that the collector's exporter didn't
       error — `otel-demo.yaml`'s apm-server endpoint (plain HTTP, no auth)
@@ -162,15 +161,38 @@ needed to prove it actually works end to end, plus close the one real gap
       elastic repo's side, and if so, add the matching `Authorization`
       header (+ certificate trust) to `otel-demo.yaml`'s
       `otlphttp/elastic` exporter — see `docs/ARGOCD.md`.
-- [ ] Ship general K3s node/pod log collection to Elastic (a
-      `filelog`/log-collection preset, or a Fleet-managed Elastic Agent
-      DaemonSet matching the core/elastic repos' pattern more directly) —
-      today only the demo services' own OTel SDK logs flow through;
-      arbitrary pod logs and node-level logs don't. This is the biggest
-      remaining gap between "otel-demo reports to Elastic" and "this
-      cluster is actually part of the observability stack" the way
-      core/elastic's VMs already are (Fleet-managed Elastic Agent on
-      every host).
+- [ ] Ship general K3s node/pod log collection to Elastic — Fleet-managed
+      Elastic Agent (`argocd/apps/elastic-agent.yaml`,
+      `argocd/apps/kube-state-metrics.yaml`, `elastic_agent_secret`
+      Ansible role, `35-elastic-agent-secret.yml`) matching the
+      core/elastic repos' pattern. See `CLAUDE.md`'s "Decisions that are
+      deliberate". Implemented, not yet confirmed live — needs
+      `ansible-playbook playbooks/site.yml`, commit+push the two new
+      `argocd/apps/*.yaml` files, then `kubectl -n argocd get
+      applications` both `Synced`/`Healthy`, `kubectl -n elastic-system
+      get pods` all `Running` (DaemonSet × 3 nodes + 1 cluster-wide +
+      kube-state-metrics), and Kibana's Fleet Agents view showing them
+      enrolled/healthy under the `k3s-cluster` policy.
+- [ ] `checkout` flow: a synthetic `POST /api/checkout` with a minimal
+      payload returned `500`, but the `checkout` service itself logged
+      nothing for that request — it likely failed inside the frontend's
+      own Next.js API route before ever reaching the backend, not
+      necessarily an infra bug. Needs a real browser test (full cart +
+      checkout form) to confirm whether this is a genuine regression from
+      the previous VM-based otel-demo deployment or an artifact of the
+      synthetic test payload.
+- [ ] Elastic MCP server can't authenticate (`401` on every query,
+      `list_indices`/`esql`/etc. all fail identically) — blocks verifying
+      APM trace/metric/log data is actually landing in the elastic
+      repo's stack (TODO.md's existing "confirm browser-side traces
+      actually arrive" item above still needs this). Needs the MCP
+      server's credentials checked/refreshed, not something fixable from
+      this repo.
+- [ ] Kubernetes/ArgoCD MCP servers may need reconfiguring — this
+      session's `terraform destroy`/`apply` fully recreated the cluster
+      (new API server TLS cert, new ArgoCD admin credentials), so any
+      long-running MCP server process holding the old cluster's
+      state/cert may need a restart/reconnect. Not yet checked.
 
 ## Phase 4 — Hardening / follow-up
 

@@ -1,0 +1,50 @@
+---
+# tasks file for elastic_agent_secret — creates the elastic-system
+# namespace and the Fleet enrollment Secret the elastic-agent GitOps app
+# (argocd/apps/elastic-agent.yaml) references via
+# agent.fleet.tokenFromSecret/agent.fleet.ca.valueFromSecret. Ansible owns
+# the secret (same split as traefik's Cloudflare token vs. otel-demo's
+# chart), so it exists before ArgoCD ever tries to sync an app that reads
+# it. See CLAUDE.md's "Decisions that are deliberate".
+
+- name: Verify the Fleet enrollment token and CA cert are available
+  ansible.builtin.assert:
+    that:
+      - elastic_fleet_enrollment_token | length > 0
+      - elastic_fleet_ca_cert_path is file
+    fail_msg: >-
+      Either FLEET_ENROLLMENT_TOKEN resolved empty (add
+      elastic_fleet_enrollment_token to secrets.yaml, export from
+      ansible/.envrc, then `direnv allow ansible`) or
+      {{ elastic_fleet_ca_cert_path }} is missing (copy it from the
+      homelab-proxmox-elastic repo's ansible/.certs/ca.crt) — see
+      docs/ANSIBLE.md.
+
+- name: Create the elastic-system namespace
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl create namespace elastic-system --dry-run=client -o yaml | kubectl apply -f -
+  register: _elastic_agent_ns
+  changed_when: "'created' in _elastic_agent_ns.stdout or 'configured' in _elastic_agent_ns.stdout"
+
+- name: Copy the Fleet CA cert to the server
+  # --from-file= below runs as part of a remote shell task (this role
+  # targets k3s_server[0]) — it reads from wherever kubectl itself is
+  # executing, not from the Ansible control node, so the cert has to
+  # land on the remote host first. Same idiom argocd's role uses to get
+  # root-app.yaml onto the server before applying it.
+  ansible.builtin.copy:
+    src: "{{ elastic_fleet_ca_cert_path }}"
+    dest: /tmp/elastic-agent-ca.crt
+    mode: "0644"
+
+- name: Create the Fleet enrollment Secret (token + CA cert)
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl -n elastic-system create secret generic elastic-agent-fleet \
+      --from-literal=token='{{ elastic_fleet_enrollment_token }}' \
+      --from-file=ca.crt=/tmp/elastic-agent-ca.crt \
+      --dry-run=client -o yaml | kubectl apply -f -
+  register: _elastic_agent_secret
+  changed_when: "'created' in _elastic_agent_secret.stdout or 'configured' in _elastic_agent_secret.stdout"
+  no_log: true

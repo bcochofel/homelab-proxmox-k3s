@@ -39,3 +39,14 @@ traefik_acme_email: "bruno.cochofel@gmail.com"
 # and `gh api repos/cilium/cilium-cli/releases/latest` (2026-08-16).
 cilium_version: "1.20.0"
 cilium_cli_version: "v0.19.7"
+
+# Elastic Agent (Fleet-managed) enrollment — feeds this cluster's node/pod
+# logs and Kubernetes state metrics into the shared homelab-proxmox-elastic
+# stack (see CLAUDE.md's "Decisions that are deliberate"). The token comes
+# from secrets.yaml via ansible/.envrc (FLEET_ENROLLMENT_TOKEN), minted by
+# that repo's fleet_bootstrap role against its k3s-cluster agent policy.
+# The CA cert is a plain file, not a secrets.yaml value — copied in from
+# that repo's own ansible/.certs/ca.crt (gitignored here too, see
+# .gitignore's ansible/.certs/ entry).
+elastic_fleet_enrollment_token: "{{ lookup('env', 'FLEET_ENROLLMENT_TOKEN') }}"
+elastic_fleet_ca_cert_path: "{{ playbook_dir }}/../.certs/ca.crt"
