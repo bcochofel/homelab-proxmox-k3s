@@ -6,26 +6,38 @@ two K3s agent nodes, assigns each a static IP via cloud-init, and generates
 
 | VM | Role | IP | Ansible group |
 | --- | --- | --- | --- |
-| k3s-srv1 | K3s server (control-plane) | 192.168.68.25 | `k3s_server` |
-| k3s-agent1 | K3s agent (worker) | 192.168.68.26 | `k3s_agent` |
-| k3s-agent2 | K3s agent (worker) | 192.168.68.27 | `k3s_agent` |
+| k3s-srv1 | K3s server (control-plane) | 192.168.68.40 | `k3s_server` |
+| k3s-agent1 | K3s agent (worker) | 192.168.68.41 | `k3s_agent` |
+| k3s-agent2 | K3s agent (worker) | 192.168.68.42 | `k3s_agent` |
 
-Sizing (2 vCPU / 4 GB / 50 GB each) was picked against `pve1`'s live
-capacity, not a round number — see `CLAUDE.md`'s "Decisions that are
-deliberate" for the math (16 vCPU / 62.5 GB total, ~13 vCPU / 35 GB already
-allocated to the core/elastic repos' VMs before this cluster exists). Disk
+Sizing was originally 2 vCPU / 4 GB / 50 GB for all three nodes, picked
+against `pve1`'s live capacity, not a round number — see `CLAUDE.md`'s
+"Decisions that are deliberate" for the math (16 vCPU / 62.5 GB total,
+~13 vCPU / 35 GB already allocated to the core/elastic repos' VMs before
+this cluster exists). `k3s-srv1` has since been bumped to 4 vCPU / 8 GB
+after a live resource-exhaustion incident (Cilium's control-plane pieces
+plus a full chart landing on one node); agents are unchanged at 2 vCPU /
+4 GB. See `CLAUDE.md` for the incident and updated host-wide math. Disk
 is pinned at 50 GB, not lower, because the bpg provider can't shrink a
 cloned disk below the `ubuntu-26.04-k3s` template's own disk size.
 Single-server topology today, no HA embedded-etcd — see the same section
 for what growing to 3 servers would change.
 
 - `modules/vm/` — the same reusable single-VM clone module the sibling
-  `homelab-proxmox-core`/`homelab-proxmox-elastic` repos use, with **one
-  local change**: `nameserver` is `list(string)` here instead of a single
-  string, because this repo's VMs get both `192.168.68.42` (CoreDNS) *and*
-  `192.168.68.43` (Pihole) for resolver redundancy, not just one. Otherwise
-  copied as-is — it takes no other workload-specific inputs, role differs
-  only in the `tags` passed in and which Ansible group the node lands in.
+  `homelab-proxmox-core`/`homelab-proxmox-elastic` repos use, copied
+  byte-for-byte identical — it takes no workload-specific inputs, role
+  differs only in the `tags` passed in and which Ansible group the node
+  lands in. `vmid` is `optional(number)`, left unset in
+  `k3s_server_nodes`/`k3s_agent_nodes`' defaults so Proxmox auto-assigns
+  the next available ID (matches core's own VM re-IP change — bpg's
+  `vm_id` is Optional+Computed, so omitting it after a VM already exists
+  in state doesn't drift/recreate it). `nameserver` currently gets both
+  `192.168.68.2` (CoreDNS primary) and `192.168.68.3` (CoreDNS secondary,
+  AXFR-synced onto the user's QNAP NAS) for resolver redundancy — interim,
+  until Pihole primary (on the core repo's dns VM) and Pihole secondary
+  (a Raspberry Pi 3, `192.168.68.6`) are configured to forward to CoreDNS
+  and do ad-blocking only, at which point `nameserver` moves to that
+  Pihole pair instead.
 - `k3s_server_nodes` / `k3s_agent_nodes` (`variables.tf`) are `list(object(...))`
   — same for-each-over-a-list idiom as elastic's `es_nodes` — so growing
   the cluster (more agents, or a 3-server HA control plane) is adding
