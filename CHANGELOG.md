@@ -2,6 +2,13 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+# [2.3.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.2.0...2.3.0) (2026-08-16)
+
+
+### Features
+
+* **ansible,argocd:** deploy Elastic Agent (Fleet-managed) + kube-state-metrics ([5b69444](https://github.com/bcochofel/homelab-proxmox-k3s/commit/5b69444a71cf8ee1f589d34c46686f20c6f606fd))
+
 # [2.2.0](https://github.com/bcochofel/homelab-proxmox-k3s/compare/2.1.1...2.2.0) (2026-08-16)
 
 
