@@ -13,5 +13,7 @@
   import_playbook: 25-traefik.yml
 - name: ArgoCD
   import_playbook: 30-argocd.yml
+- name: Elastic Agent Fleet enrollment secret
+  import_playbook: 35-elastic-agent-secret.yml
 - name: Health check
   import_playbook: 99-healthcheck.yml

@@ -79,6 +79,17 @@ cd ansible
   collection dependency wouldn't buy anything. See
   [`docs/ARGOCD.md`](ARGOCD.md) for what happens after this role hands off
   to ArgoCD.
+- **`elastic_agent_secret`** — runs once, `hosts: k3s_server[0]`, after
+  `argocd`: creates the `elastic-system` namespace and the
+  `elastic-agent-fleet` Secret (Fleet enrollment token + CA cert) that
+  `argocd/apps/elastic-agent.yaml`'s `agent.fleet.tokenFromSecret`/
+  `agent.fleet.ca.valueFromSecret` read — same Ansible-secret/GitOps-app
+  split as `traefik`'s Cloudflare token vs. otel-demo's chart, so the
+  secret exists before ArgoCD ever tries to sync an app that needs it.
+  Preflight `assert` fails loudly if `FLEET_ENROLLMENT_TOKEN` resolves
+  empty or the CA cert file is missing, same pattern as `traefik`'s
+  `CLOUDFLARE_API_TOKEN` check. See `CLAUDE.md`'s "Decisions that are
+  deliberate".
 
 ## Inventory
 
@@ -111,6 +122,11 @@ cd ansible
   same invocation (needs `k3s_node_token` in hostvars).
 - `25-traefik.yml` — `hosts: k3s_server[0]`, runs `traefik`.
 - `30-argocd.yml` — `hosts: k3s_server[0]`, runs `argocd`.
+- `35-elastic-agent-secret.yml` — `hosts: k3s_server[0]`, runs
+  `elastic_agent_secret`. After ArgoCD's bootstrap (needs `kubectl`
+  working) but before the `elastic-agent`/`kube-state-metrics` GitOps
+  apps are ever pushed to `argocd/apps/` — the Secret they read has to
+  exist first.
 - `99-healthcheck.yml` — `hosts: k3s_server[0]`: waits for every node to
   report `Ready` (`kubectl get nodes`), confirms `argocd-server`'s
   deployment is `Available`, then polls the root app-of-apps Application's
@@ -130,10 +146,10 @@ cd ansible
   before a run, confirmed it was still there after) — and set as the
   current context. `kubectl`/`helm`/`k9s`/`kubectx` all work immediately
   afterward with no flags or `KUBECONFIG` env var needed.
-- `site.yml` — chains all seven via `import_playbook`, in order (bootstrap
+- `site.yml` — chains all eight via `import_playbook`, in order (bootstrap
   -> k3s server -> Cilium CNI -> k3s agents -> traefik -> argocd ->
-  healthcheck). This is what `ansible-playbook playbooks/site.yml`
-  actually runs.
+  Elastic Agent Fleet enrollment secret -> healthcheck). This is what
+  `ansible-playbook playbooks/site.yml` actually runs.
 
 ## Secrets
 
@@ -151,5 +167,14 @@ Cloudflare zone and (confusingly) the same env var / secrets.yaml key
 collision, but the *value* should still be a distinct token so a
 leaked/rotated credential in one repo doesn't affect the other.
 
-Nothing else needs a secret today — K3s' install script and ArgoCD's
-install manifest are both self-contained.
+`FLEET_ENROLLMENT_TOKEN` (the `elastic_agent_secret` role's Fleet
+enrollment token) comes from `secrets.yaml`'s
+`elastic_fleet_enrollment_token` via the same `ansible/.envrc` chain —
+minted by the homelab-proxmox-elastic repo's `fleet_bootstrap` role
+against its `k3s-cluster` agent policy, not generated here. The Fleet CA
+cert is a plain file, not a `secrets.yaml` value: copy it in from that
+repo's `ansible/.certs/ca.crt` to this repo's `ansible/.certs/ca.crt`
+(both gitignored) before running `site.yml`.
+
+K3s' install script and ArgoCD's install manifest are both
+self-contained — no secret needed for either.

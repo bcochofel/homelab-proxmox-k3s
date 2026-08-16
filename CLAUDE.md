@@ -159,6 +159,30 @@ elastic repo is where Elastic Observability gets learned.
   integration package policy sets only `host`, no `secret_token`/TLS), not
   assumed from Elastic's docs in general. Full rationale and the "if that
   ever changes" contingency: `docs/ARGOCD.md`.
+- **Elastic Agent (Fleet-managed) + kube-state-metrics feed this
+  cluster's node/pod logs and Kubernetes state metrics into the same
+  shared Elastic stack** — the last major gap between "otel-demo reports
+  to Elastic" and "this cluster is actually part of the observability
+  stack" the way core/elastic's VMs already are. Two new GitOps apps,
+  `argocd/apps/elastic-agent.yaml` (chart pinned to `9.4.2`, matching the
+  elastic repo's `stack_version`) and `argocd/apps/kube-state-metrics.yaml`
+  (not bundled with Elastic Agent, required for cluster "state" metrics —
+  pod/deployment/node state — the built-in Kubernetes integration
+  scrapes). Enrolls against the elastic repo's Fleet Server
+  (`https://192.168.68.33:8220`) under its `k3s-cluster` agent policy,
+  minted by that repo's `fleet_bootstrap` role. Same Ansible-secret/
+  GitOps-app split as Traefik's Cloudflare token vs. otel-demo's chart:
+  the `elastic_agent_secret` role (new playbook
+  `35-elastic-agent-secret.yml`, runs after ArgoCD's bootstrap) creates
+  the `elastic-agent-fleet` Secret (enrollment token from `secrets.yaml`
+  via `FLEET_ENROLLMENT_TOKEN`, Fleet's CA cert copied in from the
+  elastic repo's own `ansible/.certs/ca.crt`) *before* ArgoCD ever syncs
+  an app that reads it — the chart's `agent.fleet.tokenFromSecret`/
+  `agent.fleet.ca.valueFromSecret` pull both directly from that Secret,
+  so no secret values live in git. Chart's own `perNode`
+  (DaemonSet)/`clusterWide` (leader-elected Deployment) presets are used
+  as-is, resources left at chart defaults rather than pre-tuned — see
+  `TODO.md`.
 - **`nameserver` on this repo's VMs is a list, not a single string** — the
   one place this repo's `modules/vm` diverges from the core/elastic
   original. Both `.42` (CoreDNS) and `.43` (Pihole) are set, for

@@ -1,0 +1,53 @@
+# ============================================================================
+# Elastic Agent (Fleet-managed) — feeds this cluster's node/pod logs and
+# Kubernetes state metrics (via kube-state-metrics.yaml) into the shared
+# homelab-proxmox-elastic stack, enrolling against that repo's Fleet Server
+# (https://192.168.68.33:8220) under its k3s-cluster agent policy. See
+# ../../CLAUDE.md's "Decisions that are deliberate".
+#
+# The enrollment token and Fleet CA cert are NOT here — they're pulled from
+# the elastic-agent-fleet Secret in the elastic-system namespace, created
+# by Ansible's elastic_agent_secret role (playbooks/35-elastic-agent-secret.yml)
+# before this app ever syncs. Same split as Traefik's Cloudflare token vs.
+# otel-demo's chart: secrets are Ansible's job, GitOps apps consume them.
+#
+# agent.presets (perNode DaemonSet + clusterWide leader-elected Deployment)
+# are left at the chart's own defaults — both already ship enabled out of
+# the box, and preset resource requests/limits are left untuned until
+# actual usage shows they need trimming (see TODO.md).
+# ============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: elastic-agent
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.elastic.co
+    chart: elastic-agent
+    targetRevision: "9.4.2"
+    helm:
+      valuesObject:
+        agent:
+          fleet:
+            enabled: true
+            url: "https://192.168.68.33:8220"
+            tokenFromSecret:
+              name: elastic-agent-fleet
+              key: token
+            ca:
+              valueFromSecret:
+                name: elastic-agent-fleet
+                key: ca.crt
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: elastic-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
