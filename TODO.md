@@ -273,5 +273,34 @@ needed to prove it actually works end to end, plus close the one real gap
       Application (same chart, `agent.fleet.preset: clusterWide`) —
       not yet added.
 
+## Phase 5 — SRE AI-autonomy: health alerting & investigation (parallel track, health/monitoring only — not infrastructure deployment)
+
+Context: <https://sre.google/resources/practices-and-processes/ai-engineering-reliable-operations/>'s
+five-stage AI-autonomy ladder (L0 Manual → L1 Assisted Automation → L2
+Partial Autonomy (human approval) → L3 High Autonomy (bounded scenarios) →
+L4 Full Autonomy). Same cross-repo initiative tracked in the elastic repo's
+`TODO.md` Phase 6 — this repo's slice of it. Deliberately excludes
+`packer`/`terraform`/`ansible` provisioning, which stays exactly as gated
+today; this is about runtime cluster health only.
+
+- [ ] Scope `kubernetes-mcp-server`/`argocd-mcp`/`proxmox` MCP credentials
+      to genuinely read-only for unattended investigation use (mirror the
+      elastic repo's `mcp@pve!mcp` least-privilege pattern) — today only
+      Claude Code's own Bash `ask` list gates writes here, not the MCP tool
+      calls themselves, which is not a safe boundary for an agent running
+      without a human approving each call
+- [ ] Feed node health (NotReady/DiskPressure/MemoryPressure), pod health
+      (CrashLoopBackOff/ImagePullBackOff/OOMKilled), and ArgoCD app health
+      (OutOfSync/Degraded) into the shared investigation runbook (elastic
+      repo Phase 6)
+- [ ] L3 candidates (only after L1/L2 proven elsewhere): node disk-pressure
+      cleanup (prune old images, not a reboot — same class of problem as
+      the `k3s-srv1` `DiskPressure` incident above, but automated and
+      bounded this time), a bounded `kubectl scale` for a specific
+      already-diagnosed recurring `CrashLoopBackOff` pattern. Explicitly
+      scoped narrower than ArgoCD's own unscoped `selfHeal`, which is what
+      caused the `k3s-srv1` resource-exhaustion incident this file already
+      documents — L3 autonomy here must not repeat that mistake
+
 See `CLAUDE.md` for the detailed technical notes and decisions behind each
 of these (agent-facing context) — this file is just the status list.
