@@ -302,34 +302,68 @@ today; this is about runtime cluster health only.
       caused the `k3s-srv1` resource-exhaustion incident this file already
       documents — L3 autonomy here must not repeat that mistake
 
-### Identity separation: read-only / RW-CI / RW-human
+### Identity separation: role-based principals (`ai-agent` / `bcochofel`-console / `ci`)
 
-Shared Packer/Terraform/Ansible identity-separation work (one token per
-*process*, not per repo — Proxmox tokens are already shared across all
-three homelab repos today) is tracked once, in the elastic repo's
-`TODO.md` Phase 6 — see it there rather than duplicating. This repo's own
-addition, since it's the only one with a live cluster:
+**Supersedes** the earlier per-tool-token version of this section — a
+second Claude Desktop handover refined the shared model to one identity
+per *role* (not per tool), tracked in full in the elastic repo's
+`TODO.md` Phase 6 (principal table, Proxmox `pveum` commands, shared RO
+secrets file, devcontainer mechanism, host-shell-hygiene changes) — see
+it there rather than duplicating. This repo's own pieces, since it's the
+only one with a live cluster and its own Ansible secrets:
 
-- [ ] The kubeconfig/ArgoCD token used for `kubectl`/`helm`/`argocd`
-      writes is also currently single-identity, shared between
-      interactive use and Claude Code. The read-only tier for this **is**
-      the RBAC role already tracked above ("scope
+- [ ] Upgrade the read-only MCP item above ("scope
       kubernetes-mcp-server/argocd-mcp/proxmox MCP credentials to
-      genuinely read-only") — don't duplicate that item, just note the
-      connection when implementing. A CI-runner-specific ServiceAccount/
-      ArgoCD account (e.g. `k3s-ci-runner`) is reserved, not yet created.
-      No change to the existing full-access kubeconfig/`admin` account
-      used interactively today.
+      genuinely read-only") into concrete RBAC work — no longer a single
+      vague item, two separate deliverables:
+  - [ ] **Kubernetes MCP**: a genuine RO ServiceAccount + `ClusterRole`
+        (`get`/`list`/`watch` only — no `create`/`update`/`delete`),
+        repointed kubeconfig for the MCP server's own config (not the
+        human's `~/.kube/config`, which stays full-access for interactive
+        use). Negative test: attempt a mutating call through the MCP,
+        confirm RBAC refuses it — this proves the boundary, not just how
+        the MCP is normally used.
+  - [ ] **ArgoCD MCP**: dedicated RO RBAC account/token. ArgoCD does not
+        separate read from sync at the API level — both live behind the
+        same endpoint, gated purely by which account's RBAC the caller
+        authenticates as:
+        ```
+        p, role:ai-agent-ro, applications, get, */*, allow
+
+        # deliberately NO: sync, delete, override, action/*
+        ```
+        Negative test: ask the MCP to sync an app, confirm ArgoCD refuses.
+- [ ] A CI-runner-specific ServiceAccount/ArgoCD account (e.g.
+      `k3s-ci-runner`) is reserved, not yet created — mirrors the `ci`
+      principal reserved in elastic's `TODO.md`.
+- [ ] No change to the existing full-access kubeconfig/`admin` ArgoCD
+      account used interactively today — that's the `bcochofel`/console
+      tier, already correct.
+- [ ] Devcontainer (this repo's own `.devcontainer/`): same pattern as
+      elastic's `TODO.md` — Dockerfile with pinned Terraform/`kubectl`/
+      Helm/tflint/ansible-lint toolchain, `devcontainer.json` injecting
+      only the shared RO secrets (no host env passthrough, no
+      `/var/run/docker.sock`), verified per elastic's Task 4 checklist
+      (`terraform apply` rejected by the API from inside the container).
+- [ ] `ai-agent-scheduled`'s likely future home is *here* specifically —
+      a headless container/CronJob for unattended, alert-triggered
+      investigation (ties into the SLO/burn-rate alerting work above),
+      RO investigation-MCP set only. Reserved, not built now — see
+      elastic's `TODO.md` for the naming rationale, not duplicated here.
 
 ### Ansible secrets: move to inventory-scoped SOPS
 
 Same initiative as the elastic repo's `TODO.md` (see there for the full
 mechanism writeup: `community.sops` collection, a new
-`ansible/inventory/group_vars/all/secrets.sops.yaml` per repo). This
-repo's secrets to move: `cloudflare_api_token` (Traefik DNS-01),
-`FLEET_ENROLLMENT_TOKEN` (the `elastic_agent_secret` role). Same ownership
-boundary: wiring is agent-doable later, moving real secret values stays a
-user-owned edit.
+`ansible/inventory/group_vars/all/secrets.sops.yaml` per repo, **and the
+decrypt-boundary decision**: this file is encrypted only to the main
+`bcochofel` age recipient, never to the `ai-agent` identity, since
+`ansible-playbook --check --diff` still decrypts secrets to render
+templates — the agent's Ansible remit stays `ansible-lint`/
+`--syntax-check` only). This repo's secrets to move:
+`cloudflare_api_token` (Traefik DNS-01), `FLEET_ENROLLMENT_TOKEN` (the
+`elastic_agent_secret` role). Same ownership boundary: wiring is
+agent-doable later, moving real secret values stays a user-owned edit.
 
 See `CLAUDE.md` for the detailed technical notes and decisions behind each
 of these (agent-facing context) — this file is just the status list.
