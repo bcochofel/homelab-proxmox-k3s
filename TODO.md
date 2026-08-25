@@ -56,7 +56,7 @@ instead of duplicating status inline.
       bumped from 2 vCPU/4GB to 4 vCPU/8GB after a live resource-exhaustion
       incident during this rollout (load average ~25 on 2 vCPU, memory
       exhausted) — see `CLAUDE.md`'s topology-sizing note.
-- [ ] Traefik's Cloudflare DNS-01 cert resolver needs
+- [x] Traefik's Cloudflare DNS-01 cert resolver needs
       `--certificatesresolvers.cloudflare.acme.dnschallenge.resolvers=
       1.1.1.1:53,8.8.8.8:53` (now in `helmchartconfig.yaml.j2` and applied
       live) because CoreDNS is authoritative for `homelab.bcochofel.com`
@@ -66,10 +66,13 @@ instead of duplicating status inline.
       Let's Encrypt cert after the fix; `otel-demo`/`hubble` hit a DNS
       propagation timeout on the same attempt (not the zone-lookup bug —
       TXT records did get created, just didn't propagate to `1.1.1.1`/
-      `8.8.8.8` before lego's check window closed). Needs a follow-up
-      check that they succeed on Traefik's own retry, without forcing
-      another `rollout restart` too soon and burning more of Let's
-      Encrypt's per-domain failed-authorization rate limit.
+      `8.8.8.8` before lego's check window closed). Follow-up check now
+      confirmed (2026-08-25, via Traefik's own `lego` logs in
+      Elasticsearch, not assumed): both domains succeeded on the retry —
+      `Validations succeeded; requesting certificates` → `Server responded
+      with a certificate` for `otel-demo.homelab.bcochofel.com` and
+      `hubble.homelab.bcochofel.com` at 2026-08-16T15:33Z, zero `ERR`/
+      `fail` log lines for either domain since.
 
 ## Phase 2 — Green ArgoCD + Traefik
 
@@ -345,6 +348,11 @@ only one with a live cluster and its own Ansible secrets:
       only the shared RO secrets (no host env passthrough, no
       `/var/run/docker.sock`), verified per elastic's Task 4 checklist
       (`terraform apply` rejected by the API from inside the container).
+      Includes the varfile-tiering item added there — this repo has the
+      same gitignored `terraform/terraform.tfvars` +
+      `packer/ubuntu-26.04/variables.auto.pkrvars.hcl` shape (confirmed:
+      `password_hash` lives in the Packer varfile here too), so it needs
+      the same audit before the container mounts anything.
 - [ ] `ai-agent-scheduled`'s likely future home is *here* specifically —
       a headless container/CronJob for unattended, alert-triggered
       investigation (ties into the SLO/burn-rate alerting work above),
